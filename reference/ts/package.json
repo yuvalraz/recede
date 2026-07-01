@@ -1,0 +1,33 @@
+{
+  "name": "recede",
+  "version": "0.1.0",
+  "description": "Reference implementation of the Recede protocol — evidence-earned, risk-gated trust for human/agent oversight. Zero runtime dependencies.",
+  "license": "Apache-2.0",
+  "author": "Yuval Raz",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.ts\"",
+    "demo": "node demo.ts"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "trust",
+    "agent-oversight",
+    "human-in-the-loop",
+    "verification",
+    "validation",
+    "audit",
+    "protocol"
+  ]
+}

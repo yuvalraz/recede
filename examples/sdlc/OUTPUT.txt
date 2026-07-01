@@ -1,0 +1,87 @@
+
+──────────────────────────────────────────────────────────────────────────
+  RECEDE — the everyday SDLC story
+  actor=code-agent  task=code.fix  policy=recede.reference@0.1.0
+──────────────────────────────────────────────────────────────────────────
+  Trust is scoped to (actor, task_type) — never one global 'do I trust the
+  AI?'. It moves ONLY through sealed Warrants. The gate is a PURE function
+  of (trust, risk, policy): no `if (needsReview)` lives in the agent —
+  run() decides, replayably. Verify = CI/tests/types green; Validate =
+  the change does what the ticket asked, at quality.
+
+──────────────────────────────────────────────────────────────────────────
+  1. BASELINE — cold start (T0): every code.fix is human-reviewed
+──────────────────────────────────────────────────────────────────────────
+  PROJ-1001                  T0   score=0.114 (+0.114 ) n=1   → REVIEW ↯ human paged (full, APPROVE)
+     warrant: intent:sha256:8 → action:sha256:b → VP:sha256:d → VP:sha256:a → cp/APPROVE:sha256:d → outcome/SUCCESS:sha256:f
+     gate reason: tier T0 requires checkpoint for risk 'reversible.low'
+     policy_digest pinned on the decision (I6): sha256:e3bbda0bd…
+
+──────────────────────────────────────────────────────────────────────────
+  2. EARNING TRUST — clean, verified + validated fixes compound T0 → T3
+──────────────────────────────────────────────────────────────────────────
+  PROJ-1002                  T0   score=0.215 (+0.101 ) n=2   → REVIEW ↯ human paged (full, APPROVE)
+  PROJ-1005                  T1   score=0.454 (+0.070 ) n=5   → REVIEW ↯ human paged (brief, APPROVE)
+  PROJ-1011                  T2   score=0.736 (+0.034 ) n=11  → autonomous merge · no human paged
+  PROJ-1020                  T2   score=0.911 (+0.011 ) n=20  → autonomous merge · no human paged
+  PROJ-1032                  T3   score=0.979 (+0.003 ) n=32  → autonomous merge · no human paged
+
+     Review receded at fix #11: that is the exact change where
+     the (RiskClass × Tier) matrix flips 'reversible.low' to AUTONOMOUS.
+     Small daily verified wins compounded into earned, bounded autonomy.
+
+──────────────────────────────────────────────────────────────────────────
+  3. REVIEW RECEDES — same code, no review, Warrant still recorded
+──────────────────────────────────────────────────────────────────────────
+  PROJ-1041                  T3   score=0.982 (+0.002 ) n=33  → autonomous merge · no human paged
+     warrant: intent:sha256:c → action:sha256:b → VP:sha256:8 → VP:sha256:3 → outcome/SUCCESS:sha256:f
+     The reviewer saw NOTHING for this PR — and that is the product working.
+     The Warrant above is still on the ledger: every unread merge has a receipt.
+
+──────────────────────────────────────────────────────────────────────────
+  4. SNAP BACK — an autonomously-merged fix is REVERTED in staging
+──────────────────────────────────────────────────────────────────────────
+  A fix merges autonomously (deferred: staging bake overnight), then staging
+  reverts it — the change regressed a flow that CI did not cover:
+  PROJ-1042 (defer)          T3   score=0.982 (+0.000 ) n=33  → autonomous merge · no human paged
+     sealed UNRESOLVED — held out of trust until staging reports (SPEC §6).
+
+     …overnight: staging REVERTS it. Re-sealing the Warrant with ground truth:
+       reversal: T3  → T1  score 0.982 → 0.372   (demotion — trust lost fast, I4)
+  PROJ-1043                  T1   score=0.443 (+0.072 ) n=35  → REVIEW ↯ human paged (brief, APPROVE)
+
+     Trust fell to T1 — below the tier 'reversible.low' needs to
+     merge unattended. So review SNAPPED BACK automatically on PROJ-1043.
+     No rule was edited; the same call site is reviewed again.
+
+──────────────────────────────────────────────────────────────────────────
+  5. STAKES GATE — a code.migrate (irreversible.critical) GATES at every tier
+──────────────────────────────────────────────────────────────────────────
+  The agent is high-trust on code.fix (T3, score 0.761)
+  after 7 more clean fixes. But code.migrate is a SEPARATE scope — cold
+  at T0 (I1: scope isolation), and it is irreversible.critical:
+  PROJ-2000 (migration)      gate decided → REVIEW ↯ human paged (full, REJECT)
+     gate reason: never_recede: 'irreversible.critical' retains a checkpoint at every tier (I3)
+     'irreversible.critical' is in never_recede[], so code.migrate keeps a
+     checkpoint at EVERY tier (I3). Earned autonomy on code.fix NEVER leaks
+     into a schema migration. The reviewer REJECTED this one.
+
+──────────────────────────────────────────────────────────────────────────
+  6. REPLAY — reconstruct the exact final trust from the stored Warrants (I2)
+──────────────────────────────────────────────────────────────────────────
+  (code-agent, code.fix)
+     stored   : tier=T3  score=0.761372521  n=42
+     replayed : tier=T3  score=0.761372521  n=42
+  (code-agent, code.migrate)
+     stored   : tier=T0  score=0.000000000  n=1
+     replayed : tier=T0  score=0.000000000  n=1
+     replay() == stored state, both scopes (invariant I2): TRUE ✓
+     227 records on the ledger. "Why did that PR merge
+     unattended?" is answered by pointing at the receipts — not a dashboard.
+
+──────────────────────────────────────────────────────────────────────────
+  Trust is a trajectory, not a checkpoint. Review receded where the
+  evidence allowed, snapped back the instant staging turned, and never
+  receded on the migration at all.
+──────────────────────────────────────────────────────────────────────────
+

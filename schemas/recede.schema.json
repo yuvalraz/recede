@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yuvalraz/recede/schemas/recede.schema.json",
+  "title": "Recede v0.1 records",
+  "description": "Machine-readable schema for the Recede evidence records. All records are content-addressed: id = hash(canonical_serialize(record with id/sig omitted)). See SPEC.md.",
+  "$defs": {
+    "Record": {
+      "type": "object",
+      "description": "Base fields common to every record.",
+      "properties": {
+        "id": { "type": "string", "description": "content hash of the canonical record" },
+        "kind": { "type": "string", "enum": ["INTENT", "ACTION", "CHECK", "OUTCOME", "CHECKPOINT"] },
+        "prev": { "type": ["string", "null"], "description": "hash of the prior record in this Warrant" },
+        "actor": { "type": "string" },
+        "ts": { "type": "string", "format": "date-time" },
+        "sig": { "type": ["string", "null"], "description": "reserved; signature profile deferred (SPEC §10)" }
+      },
+      "required": ["id", "kind", "actor", "ts"]
+    },
+    "RiskClass": {
+      "type": "string",
+      "description": "Declared risk of an action. Reference taxonomy; an org MAY define its own.",
+      "examples": ["read.only", "reversible.low", "financial.reversible", "irreversible.critical"]
+    },
+    "IntentRecord": {
+      "allOf": [{ "$ref": "#/$defs/Record" }],
+      "properties": {
+        "kind": { "const": "INTENT" },
+        "task_type": { "type": "string", "description": "namespaced class of work, e.g. refund.issue" },
+        "inputs_digest": { "type": "string" },
+        "proposed_action": { "type": "string" },
+        "declared_risk": { "$ref": "#/$defs/RiskClass" },
+        "expected_effects": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["task_type", "declared_risk", "proposed_action"]
+    },
+    "ActionRecord": {
+      "allOf": [{ "$ref": "#/$defs/Record" }],
+      "properties": {
+        "kind": { "const": "ACTION" },
+        "intent_ref": { "type": "string" },
+        "operations": { "type": "array", "items": { "type": "string" } },
+        "result_digest": { "type": "string" }
+      },
+      "required": ["intent_ref", "operations"]
+    },
+    "CheckRecord": {
+      "allOf": [{ "$ref": "#/$defs/Record" }],
+      "properties": {
+        "kind": { "const": "CHECK" },
+        "action_ref": { "type": "string" },
+        "check_kind": { "type": "string", "enum": ["VERIFY", "VALIDATE"], "description": "VERIFY = did it right; VALIDATE = right thing" },
+        "method": { "type": "string" },
+        "verdict": { "type": "string", "enum": ["PASS", "FAIL", "INCONCLUSIVE"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "evidence_refs": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["action_ref", "check_kind", "verdict", "confidence"]
+    },
+    "Outcome": {
+      "allOf": [{ "$ref": "#/$defs/Record" }],
+      "properties": {
+        "kind": { "const": "OUTCOME" },
+        "warrant_ref": { "type": "string" },
+        "result": { "type": "string", "enum": ["SUCCESS", "FAILURE", "REVERTED", "UNRESOLVED"] },
+        "ground_truth_source": { "type": "string" },
+        "deferred_until": { "type": ["string", "null"], "format": "date-time", "description": "set when result=UNRESOLVED and truth is knowable later" },
+        "human_touched": { "type": "boolean" }
+      },
+      "required": ["warrant_ref", "result"]
+    },
+    "Checkpoint": {
+      "allOf": [{ "$ref": "#/$defs/Record" }],
+      "properties": {
+        "kind": { "const": "CHECKPOINT" },
+        "warrant_ref": { "type": "string" },
+        "reason": { "type": "string" },
+        "presented_evidence": { "type": "array", "items": { "type": "string" } },
+        "altitude": { "type": "string", "description": "how much context the human is shown" },
+        "decision": { "type": "string", "enum": ["APPROVE", "REJECT", "MODIFY", "ESCALATE"] },
+        "reviewer": { "type": "string" },
+        "latency": { "type": "number", "description": "seconds from checkpoint open to decision; the fatigue signal" }
+      },
+      "required": ["warrant_ref", "reason", "decision", "reviewer"]
+    },
+    "TrustState": {
+      "type": "object",
+      "description": "Current standing for one (actor, task_type) scope. Reconstructable via replay() (I2).",
+      "properties": {
+        "actor": { "type": "string" },
+        "task_type": { "type": "string" },
+        "tier": { "type": "string", "enum": ["T0", "T1", "T2", "T3", "T4"] },
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sample_count": { "type": "integer", "minimum": 0 },
+        "window_ref": { "type": ["string", "null"] },
+        "updated": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actor", "task_type", "tier", "score", "confidence", "sample_count"]
+    }
+  }
+}

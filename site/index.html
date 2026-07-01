@@ -1,0 +1,595 @@
+<!--
+  Recede — landing page
+  Copyright 2026 Yuval Raz
+  Licensed under the Apache License, Version 2.0.
+  Single-file, zero external requests. Deployable as-is to GitHub Pages / Vercel.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recede — trust is a trajectory, not a checkpoint</title>
+<meta name="description" content="An open protocol for evidence-earned, risk-gated trust in the SDLC. Coding agents earn autonomy one verified change at a time — review recedes where the evidence says it can, and snaps back the instant quality regresses.">
+<style>
+  :root{
+    --ink:#0c0e12;
+    --ink-2:#12151b;
+    --panel:#161a22;
+    --line:#242a35;
+    --line-2:#2f3745;
+    --fg:#e7e9ee;
+    --fg-dim:#9aa3b2;
+    --fg-faint:#6b7382;
+    --accent:#6ee7a8;      /* trust rising — green */
+    --accent-2:#f2b45b;    /* checkpoint — amber */
+    --danger:#ff6b6b;      /* revert — red */
+    --blue:#7cc7ff;
+    --mono:"SF Mono",ui-monospace,"JetBrains Mono","Fira Code",Menlo,Consolas,monospace;
+    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:1080px;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--ink);color:var(--fg);
+    font-family:var(--sans);font-size:16px;line-height:1.6;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+    overflow-x:hidden;
+  }
+  /* faint schematic grid, drawn once, no requests */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background-image:
+      linear-gradient(var(--line) 1px,transparent 1px),
+      linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:48px 48px;
+    opacity:.14;
+    mask-image:radial-gradient(ellipse 90% 60% at 50% 0%,#000 30%,transparent 78%);
+    -webkit-mask-image:radial-gradient(ellipse 90% 60% at 50% 0%,#000 30%,transparent 78%);
+  }
+  .wrap{position:relative;z-index:1;max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  a{color:inherit}
+  h1,h2,h3{line-height:1.15;letter-spacing:-0.02em;font-weight:650;margin:0}
+  code,kbd,pre{font-family:var(--mono)}
+  ::selection{background:rgba(110,231,168,.28)}
+
+  /* ---- top bar ---- */
+  header{position:relative;z-index:3;border-bottom:1px solid var(--line)}
+  .bar{max-width:var(--maxw);margin:0 auto;padding:16px 24px;display:flex;align-items:center;gap:20px}
+  .brand{display:flex;align-items:center;gap:11px;font-family:var(--mono);font-weight:600;letter-spacing:.02em;text-decoration:none}
+  .brand .mark{width:22px;height:22px}
+  .brand .v{color:var(--fg-faint);font-size:12px;border:1px solid var(--line-2);border-radius:4px;padding:1px 6px}
+  .bar nav{margin-left:auto;display:flex;gap:22px;align-items:center;font-size:14px}
+  .bar nav a{color:var(--fg-dim);text-decoration:none;transition:color .15s}
+  .bar nav a:hover{color:var(--fg)}
+  .bar .gh{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line-2);padding:6px 12px;border-radius:7px;color:var(--fg);font-family:var(--mono);font-size:13px}
+  .bar .gh:hover{border-color:var(--fg-faint);background:var(--ink-2)}
+  @media(max-width:680px){.bar nav a.hide-sm{display:none}}
+
+  /* ---- hero ---- */
+  .hero{padding:76px 0 40px}
+  .eyebrow{font-family:var(--mono);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:22px}
+  .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
+  h1.hz{font-size:clamp(34px,6vw,60px);letter-spacing:-0.03em;font-weight:680;max-width:16ch}
+  h1.hz em{font-style:normal;color:var(--accent)}
+  .lede{margin-top:22px;font-size:clamp(17px,2.2vw,20px);color:var(--fg-dim);max-width:60ch;line-height:1.55}
+  .lede b{color:var(--fg);font-weight:600}
+  .cta{margin-top:32px;display:flex;flex-wrap:wrap;gap:14px}
+  .btn{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:14px;text-decoration:none;padding:11px 18px;border-radius:9px;transition:.15s;border:1px solid transparent}
+  .btn.primary{background:var(--accent);color:#06231a;font-weight:650}
+  .btn.primary:hover{filter:brightness(1.08);transform:translateY(-1px)}
+  .btn.ghost{border-color:var(--line-2);color:var(--fg)}
+  .btn.ghost:hover{border-color:var(--fg-faint);background:var(--ink-2)}
+
+  /* ---- trajectory viz ---- */
+  .viz{margin:52px 0 0;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,var(--ink-2),var(--ink));overflow:hidden}
+  .viz-head{display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:13px;color:var(--fg-dim);flex-wrap:wrap}
+  .viz-head .scope{color:var(--fg)}
+  .viz-head .sep{color:var(--fg-faint)}
+  .viz-head .play{margin-left:auto;display:inline-flex;align-items:center;gap:7px;background:none;border:1px solid var(--line-2);color:var(--fg-dim);font-family:var(--mono);font-size:12px;padding:5px 11px;border-radius:6px;cursor:pointer;transition:.15s}
+  .viz-head .play:hover{border-color:var(--fg-faint);color:var(--fg)}
+  .viz-body{padding:8px 8px 4px}
+  .chartwrap{overflow-x:auto}
+  svg.chart{display:block;width:100%;min-width:560px;height:auto}
+  .legend{display:flex;flex-wrap:wrap;gap:18px;padding:6px 18px 16px;font-family:var(--mono);font-size:12px;color:var(--fg-dim)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+  .caption{padding:0 18px 18px;color:var(--fg-faint);font-size:13.5px;max-width:70ch}
+  .caption b{color:var(--fg-dim);font-weight:600}
+
+  /* ---- sections ---- */
+  section.blk{padding:64px 0;border-top:1px solid var(--line)}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-faint);margin-bottom:14px}
+  h2.st{font-size:clamp(24px,3.4vw,34px);letter-spacing:-0.025em;max-width:20ch}
+  .sub{margin-top:14px;color:var(--fg-dim);max-width:64ch;font-size:16.5px}
+
+  /* inversion callout */
+  .inversion{margin-top:34px;display:grid;grid-template-columns:1fr auto 1fr;gap:0;align-items:stretch;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .inversion .cell{padding:26px 24px}
+  .inversion .from{background:var(--ink-2)}
+  .inversion .to{background:linear-gradient(180deg,rgba(110,231,168,.06),transparent)}
+  .inversion .lbl{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-faint);margin-bottom:12px}
+  .inversion .to .lbl{color:var(--accent)}
+  .inversion .big{font-size:20px;font-weight:600;letter-spacing:-0.01em;line-height:1.35}
+  .inversion .from .big{color:var(--fg-dim)}
+  .inversion .arrow{display:flex;align-items:center;justify-content:center;padding:0 6px;color:var(--fg-faint);font-family:var(--mono);border-left:1px solid var(--line);border-right:1px solid var(--line);background:var(--ink)}
+  @media(max-width:720px){
+    .inversion{grid-template-columns:1fr}
+    .inversion .arrow{border:none;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:10px;transform:rotate(90deg) /* visual */}
+    .inversion .arrow span{transform:rotate(0)}
+  }
+
+  /* five-bullet model */
+  .model{margin-top:34px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;counter-reset:m}
+  .card{border:1px solid var(--line);border-radius:12px;padding:22px;background:var(--panel);position:relative;transition:border-color .18s,transform .18s}
+  .card:hover{border-color:var(--line-2);transform:translateY(-2px)}
+  .card::before{counter-increment:m;content:counter(m,decimal-leading-zero);font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.05em}
+  .card h3{font-size:17px;margin:10px 0 8px;letter-spacing:-0.01em}
+  .card p{margin:0;color:var(--fg-dim);font-size:14.5px;line-height:1.55}
+  .card p code{color:var(--fg);background:var(--ink);padding:1px 5px;border-radius:4px;font-size:12.5px}
+
+  /* comparison table */
+  .tablewrap{margin-top:30px;overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+  table{border-collapse:collapse;width:100%;min-width:640px;font-size:14.5px}
+  thead th{text-align:left;font-family:var(--mono);font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--fg-faint);font-weight:500;padding:15px 18px;background:var(--ink-2);border-bottom:1px solid var(--line)}
+  thead th:last-child{color:var(--accent)}
+  tbody td{padding:16px 18px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--fg-dim)}
+  tbody tr:last-child td{border-bottom:none}
+  tbody td:first-child{color:var(--fg);font-weight:550}
+  tbody td:last-child{color:var(--fg);font-weight:550}
+  tbody tr:hover td{background:rgba(255,255,255,.015)}
+
+  /* quickstart */
+  .code{margin-top:30px;border:1px solid var(--line);border-radius:12px;background:var(--ink-2);overflow:hidden}
+  .code-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;color:var(--fg-faint)}
+  .code-head .fname{color:var(--fg-dim)}
+  .code-head .copy{margin-left:auto;background:none;border:1px solid var(--line-2);color:var(--fg-dim);font-family:var(--mono);font-size:12px;padding:5px 11px;border-radius:6px;cursor:pointer;transition:.15s}
+  .code-head .copy:hover{border-color:var(--fg-faint);color:var(--fg)}
+  pre{margin:0;padding:20px 18px;overflow-x:auto;font-size:13.5px;line-height:1.65;tab-size:2}
+  pre code{color:var(--fg)}
+  .tok-k{color:#c792ea}     /* keyword */
+  .tok-s{color:var(--accent)}  /* string */
+  .tok-f{color:var(--blue)}    /* function/method */
+  .tok-c{color:var(--fg-faint);font-style:italic} /* comment */
+  .tok-p{color:var(--fg-dim)}  /* punctuation-ish/prop */
+  .tok-n{color:var(--accent-2)}/* number-ish */
+  .postcode{margin-top:16px;color:var(--fg-dim);font-size:14.5px;max-width:66ch}
+  .postcode b{color:var(--fg);font-weight:600}
+
+  /* invariants strip */
+  .inv{margin-top:28px;display:flex;flex-wrap:wrap;gap:10px}
+  .inv .chip{font-family:var(--mono);font-size:12.5px;color:var(--fg-dim);border:1px solid var(--line);border-radius:999px;padding:7px 14px;background:var(--panel)}
+  .inv .chip b{color:var(--accent);font-weight:600}
+
+  /* status / scope */
+  .status{margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .status .box{border:1px solid var(--line);border-radius:12px;padding:22px;background:var(--panel)}
+  .status .box h3{font-size:14px;font-family:var(--mono);letter-spacing:.03em;margin-bottom:12px}
+  .status .box.ships h3{color:var(--accent)}
+  .status .box.defer h3{color:var(--fg-faint)}
+  .status ul{margin:0;padding-left:0;list-style:none}
+  .status li{color:var(--fg-dim);font-size:14px;padding:5px 0 5px 20px;position:relative;line-height:1.45}
+  .status li::before{content:"";position:absolute;left:0;top:11px;width:7px;height:7px;border-radius:2px}
+  .status .ships li::before{background:var(--accent)}
+  .status .defer li::before{background:var(--line-2)}
+  @media(max-width:640px){.status{grid-template-columns:1fr}}
+
+  /* footer */
+  footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:20px}
+  .foot{display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between;color:var(--fg-faint);font-size:13.5px;font-family:var(--mono)}
+  .foot a{color:var(--fg-dim);text-decoration:none}
+  .foot a:hover{color:var(--fg)}
+  .foot .links{display:flex;gap:20px;flex-wrap:wrap}
+
+  /* animated stroke draw */
+  @media(prefers-reduced-motion:no-preference){
+    .anim-line{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:draw 3.2s ease-out .3s forwards}
+    .anim-fill{opacity:0;animation:fade 1.2s ease-out 2.6s forwards}
+    .marker{opacity:0;animation:pop .4s cubic-bezier(.34,1.56,.64,1) forwards}
+    .revert-mark{opacity:0;animation:pop .4s cubic-bezier(.34,1.56,.64,1) forwards}
+  }
+  @keyframes draw{to{stroke-dashoffset:0}}
+  @keyframes fade{to{opacity:1}}
+  @keyframes pop{to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="bar">
+    <a class="brand" href="#top">
+      <!-- inline mark: a receding step-function -->
+      <svg class="mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M2 20 H7 V13 H12 V8 H17 V15 H22" stroke="#6ee7a8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="17" cy="15" r="2.4" fill="#ff6b6b"/>
+      </svg>
+      recede<span class="v">v0.1</span>
+    </a>
+    <nav>
+      <a href="#model" class="hide-sm">Model</a>
+      <a href="#different" class="hide-sm">Why different</a>
+      <a href="#quickstart">Quickstart</a>
+      <a class="gh" href="https://github.com/yuvalraz/recede" target="_blank" rel="noopener">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main id="top" class="wrap">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="eyebrow"><span class="dot"></span>Trust protocol for the AI-assisted SDLC</div>
+    <h1 class="hz">Trust is a <em>trajectory</em>, not a checkpoint.</h1>
+    <p class="lede">
+      Coding agents earn autonomy from evidence, <b>one verified change at a time</b> —
+      and human review <b>recedes exactly where the evidence says it can</b>, with a
+      receipt for every merge you no longer read. An open, language- and
+      transport-agnostic protocol. Zero runtime dependencies.
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="#quickstart">Read the quickstart →</a>
+      <a class="btn ghost" href="https://github.com/yuvalraz/recede" target="_blank" rel="noopener">github.com/yuvalraz/recede</a>
+      <a class="btn ghost" href="https://github.com/yuvalraz/recede/blob/main/SPEC.md" target="_blank" rel="noopener">SPEC.md</a>
+    </div>
+  </section>
+
+  <!-- TRAJECTORY VIZ -->
+  <section class="viz" aria-label="Trust trajectory over time">
+    <div class="viz-head">
+      <span class="scope">trust(code-agent,&nbsp;code.fix)</span>
+      <span class="sep">·</span>
+      <span>~30 verified changes</span>
+      <button class="play" id="replay" type="button" aria-label="Replay animation">↺ replay</button>
+    </div>
+    <div class="viz-body">
+      <div class="chartwrap">
+        <!-- 900x300 viewBox; built by hand to tell the SDLC (code.fix) story -->
+        <svg class="chart" id="chart" viewBox="0 0 900 300" role="img" aria-label="A trust score rising with clean runs, plateauing as review recedes, a checkpoint firing on a high-stakes action, then snapping back down when reverts hit.">
+          <defs>
+            <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#6ee7a8" stop-opacity="0.28"/>
+              <stop offset="1" stop-color="#6ee7a8" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+
+          <!-- tier gridlines -->
+          <g stroke="#242a35" stroke-width="1">
+            <line x1="60" y1="40"  x2="880" y2="40"/>
+            <line x1="60" y1="100" x2="880" y2="100"/>
+            <line x1="60" y1="160" x2="880" y2="160"/>
+            <line x1="60" y1="220" x2="880" y2="220"/>
+            <line x1="60" y1="270" x2="880" y2="270"/>
+          </g>
+          <!-- tier labels -->
+          <g font-family="var(--mono)" font-size="11" fill="#6b7382">
+            <text x="12" y="44">T4</text>
+            <text x="12" y="104">T3</text>
+            <text x="12" y="164">T2</text>
+            <text x="12" y="224">T1</text>
+            <text x="12" y="274">T0</text>
+          </g>
+
+          <!-- receded (autonomous) band: where the human sees nothing -->
+          <rect x="360" y="34" width="230" height="126" fill="#6ee7a8" opacity="0.05"/>
+          <text x="368" y="52" font-family="var(--mono)" font-size="11" fill="#6ee7a8" opacity="0.75">review receded — autonomous merges</text>
+
+          <!-- filled area under the trust curve -->
+          <path class="anim-fill" fill="url(#area)" d="
+            M60,258
+            C120,250 150,205 210,178
+            C270,150 320,112 400,96
+            C470,84 540,84 590,90
+            L640,96
+            C660,150 680,205 700,240
+            C720,262 760,262 820,258
+            L880,258
+            L880,270 L60,270 Z"/>
+
+          <!-- the trust trajectory line -->
+          <path class="anim-line" id="trustline" fill="none" stroke="#6ee7a8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="
+            M60,258
+            C120,250 150,205 210,178
+            C270,150 320,112 400,96
+            C470,84 540,84 590,90
+            L640,96
+            C660,150 680,205 700,240
+            C720,262 760,262 820,258"/>
+
+          <!-- checkpoint markers (amber diamonds) — present while gated, then thin out -->
+          <g class="marker" style="animation-delay:1.0s">
+            <g transform="translate(90,252)"><path d="M0,-6 L6,0 L0,6 L-6,0 Z" fill="#f2b45b"/></g>
+          </g>
+          <g class="marker" style="animation-delay:1.25s">
+            <g transform="translate(150,215)"><path d="M0,-6 L6,0 L0,6 L-6,0 Z" fill="#f2b45b"/></g>
+          </g>
+          <g class="marker" style="animation-delay:1.5s">
+            <g transform="translate(230,178)"><path d="M0,-6 L6,0 L0,6 L-6,0 Z" fill="#f2b45b"/></g>
+          </g>
+          <g class="marker" style="animation-delay:1.75s">
+            <g transform="translate(320,128)"><path d="M0,-6 L6,0 L0,6 L-6,0 Z" fill="#f2b45b"/></g>
+          </g>
+          <!-- ...then the band goes quiet — no markers across the receded stretch... -->
+
+          <!-- the high-stakes checkpoint that FIRES even at high trust -->
+          <g class="marker" style="animation-delay:2.35s">
+            <g transform="translate(500,86)">
+              <path d="M0,-8 L8,0 L0,8 L-8,0 Z" fill="#f2b45b" stroke="#0c0e12" stroke-width="1.5"/>
+              <circle cx="0" cy="0" r="15" fill="none" stroke="#f2b45b" stroke-width="1.5" opacity="0.55"/>
+            </g>
+            <text x="500" y="66" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="#f2b45b">schema.migrate · irreversible → ALWAYS GATES</text>
+          </g>
+
+          <!-- REVERTS land: red markers where trust snaps down -->
+          <g class="revert-mark" style="animation-delay:2.8s">
+            <circle cx="655" cy="108" r="4.5" fill="#ff6b6b"/>
+          </g>
+          <g class="revert-mark" style="animation-delay:2.95s">
+            <circle cx="680" cy="150" r="4.5" fill="#ff6b6b"/>
+          </g>
+          <g class="revert-mark" style="animation-delay:3.1s">
+            <circle cx="700" cy="200" r="4.5" fill="#ff6b6b"/>
+          </g>
+          <g class="revert-mark" style="animation-delay:3.25s">
+            <text x="700" y="234" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="#ff6b6b">post-merge revert in staging → review snaps back</text>
+          </g>
+          <!-- checkpoints reappear after the drop -->
+          <g class="marker" style="animation-delay:3.4s">
+            <g transform="translate(760,255)"><path d="M0,-6 L6,0 L0,6 L-6,0 Z" fill="#f2b45b"/></g>
+          </g>
+          <g class="marker" style="animation-delay:3.55s">
+            <g transform="translate(820,251)"><path d="M0,-6 L6,0 L0,6 L-6,0 Z" fill="#f2b45b"/></g>
+          </g>
+
+          <!-- x axis label -->
+          <text x="470" y="292" text-anchor="middle" font-family="var(--mono)" font-size="11" fill="#6b7382">confirmed outcomes over time  →</text>
+        </svg>
+      </div>
+      <div class="legend">
+        <span><i style="background:#6ee7a8"></i> trust score</span>
+        <span><i style="background:#f2b45b"></i> checkpoint fires</span>
+        <span><i style="background:#ff6b6b"></i> reverted outcome</span>
+        <span><i style="background:rgba(110,231,168,.18)"></i> receded / autonomous</span>
+      </div>
+      <p class="caption">
+        One coding agent on <b>code.fix</b> the whole way across. Day 1, <b>every change is
+        reviewed</b> — Verify (CI, tests, types green) and Validate (it did what the ticket
+        asked, at quality) — and the diamonds thin out as clean fixes compound until review
+        has <b>receded</b> and low-risk fixes merge autonomously. A <b>schema.migrate</b>
+        still gates every time — irreversible actions never recede. Then an autonomous fix is
+        <b>reverted in staging</b>, trust drops below the tier floor, and review <b>snaps back
+        automatically</b>. No one edited a rule; the evidence moved.
+      </p>
+    </div>
+  </section>
+
+  <!-- PROBLEM / INVERSION -->
+  <section class="blk" id="inversion">
+    <div class="kicker">The inversion</div>
+    <h2 class="st">Everyone else fights AI-PR review fatigue by shipping <em style="font-style:normal;color:var(--fg-dim)">more to watch.</em></h2>
+    <p class="sub">
+      You put an agent in the dev loop — it plans, writes code, adds tests, opens PRs. No human
+      can meaningfully read 40 agent PRs a day, so review collapses into <b style="color:var(--fg)">rubber-stamping</b>
+      (review theater) or <b style="color:var(--fg)">bottlenecking</b> (the agent's speed is wasted). The root cause
+      is a trust-calibration bug: trust today is <b style="color:var(--fg)">mis-attributed</b> — one global
+      "do I trust the AI?" verdict, when <em style="font-style:normal">trusted to fix a flaky test</em> and
+      <em style="font-style:normal">trusted to run a migration</em> are different questions — and
+      <b style="color:var(--fg)">mis-calibrated</b> — granted by feeling, not evidence. The usual answer is a
+      bigger dashboard, a 0–1000 score, more alerts. Wrong direction.
+      <br><br>
+      Fix attribution (per <code style="font-family:var(--mono);color:var(--fg)">Actor × TaskType</code>) and calibration
+      (evidence + confidence), and <b style="color:var(--fg)">small daily verified wins compound</b> into earned, bounded
+      autonomy — so review recedes exactly where warranted.
+    </p>
+    <div class="inversion">
+      <div class="cell from">
+        <div class="lbl">The reflex</div>
+        <div class="big">Measure trust → build a dashboard → watch <u>more</u>.</div>
+      </div>
+      <div class="arrow"><span>invert&nbsp;→</span></div>
+      <div class="cell to">
+        <div class="lbl">Recede</div>
+        <div class="big">Measure trust per capability → let review recede → read <u>fewer</u> PRs, on purpose — and snap back the instant a merge regresses.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FIVE-BULLET MODEL -->
+  <section class="blk" id="model">
+    <div class="kicker">The model</div>
+    <h2 class="st">Five bullets, and you have the whole thing.</h2>
+    <div class="model">
+      <div class="card">
+        <h3>Trust is scoped</h3>
+        <p>Held per <code>(Actor, TaskType)</code> — never one global agent score. Trusted on <code>code.fix</code> ≠ trusted on <code>code.migrate</code>. Review recedes in one lane while staying tight in another.</p>
+      </div>
+      <div class="card">
+        <h3>Every action emits a Warrant</h3>
+        <p>An append-only, hash-linked chain: <em style="font-style:normal;color:var(--fg)">intent → action → checks → outcome</em>. Trust is a sum over receipts you can open. No Warrant, no trust movement.</p>
+      </div>
+      <div class="card">
+        <h3>V&amp;V is first-class and split</h3>
+        <p><b style="color:var(--fg)">Verify</b> = did it do the thing right (CI, tests, types green). <b style="color:var(--fg)">Validate</b> = did it do the <em style="font-style:normal;color:var(--fg)">right</em> thing — the change matches the ticket, at quality. Conflating "tests are green" with "it did what I asked" is how confidently-wrong code merges.</p>
+      </div>
+      <div class="card">
+        <h3>The Gate is a pure function</h3>
+        <p><code>gate(trust, risk, policy)</code> → checkpoint or autonomous. Same inputs, same decision, always replayable. That makes "review recedes as trust is earned" a <em style="font-style:normal;color:var(--fg)">provable property</em>, not a vibe.</p>
+      </div>
+      <div class="card">
+        <h3>Asymmetric &amp; bounded</h3>
+        <p>Earned slowly, lost fast. Decays with staleness and drift. Irreversible actions — <code>code.migrate</code>, prod deploys — keep a human checkpoint at <em style="font-style:normal;color:var(--fg)">every</em> tier. Earned autonomy is bounded, never unbounded.</p>
+      </div>
+      <div class="card" style="background:linear-gradient(180deg,rgba(110,231,168,.05),var(--panel));border-color:var(--line-2)">
+        <h3 style="color:var(--accent)">Replay proves it</h3>
+        <p><code>replay(warrants, policy)</code> reconstructs the exact trust state from the receipts + pinned policy. "Why did this merge unattended?" is answered by pointing at the chain.</p>
+      </div>
+    </div>
+    <div class="inv">
+      <span class="chip"><b>I1</b> scope isolation</span>
+      <span class="chip"><b>I2</b> replay reconstructability</span>
+      <span class="chip"><b>I3</b> irreversible floor · never_recede</span>
+      <span class="chip"><b>I4</b> trust can decrease</span>
+      <span class="chip"><b>I5</b> confidence cap</span>
+      <span class="chip"><b>I6</b> policy digest on every decision</span>
+      <span class="chip"><b>I7</b> gate / update / replay purity</span>
+    </div>
+  </section>
+
+  <!-- WHY DIFFERENT -->
+  <section class="blk" id="different">
+    <div class="kicker">Why it's different</div>
+    <h2 class="st">It's not another scorecard. It's a layer above them.</h2>
+    <p class="sub">Recede sits above interop (MCP/A2A), eval/observability tools, and static guardrails — consuming their signals as evidence rather than replacing them.</p>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Incumbent</th><th>What it does</th><th>Recede's distinct axis</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Eval / observability tools</td><td>Score each run in isolation</td><td>Trust has <u>memory</u> — carried forward per capability</td></tr>
+          <tr><td>Static guardrails / control standards</td><td>Apply the same checkpoints uniformly, forever</td><td>Review is <u>proportional</u> to earned evidence</td></tr>
+          <tr><td>Governance promotion-ladders</td><td>Earned, but coarse HR-style tiers + calendar time + sign-off</td><td><u>Continuous &amp; machine-verifiable</u>, per-action</td></tr>
+          <tr><td>Agent identity / A2A</td><td>Establish <em style="font-style:normal">who</em> the agent is</td><td>Not who it is — <u>what it has earned</u></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- QUICKSTART -->
+  <section class="blk" id="quickstart">
+    <div class="kicker">Quickstart</div>
+    <h2 class="st">The whole framework is one call: wrap the function you already have.</h2>
+    <p class="sub">Reference implementation — TypeScript primary, Python mirror. The gate is <em style="font-style:normal;color:var(--fg)">implicit</em>: there is no <code style="font-family:var(--mono);color:var(--fg)">if (needsReview)</code> in your code. <code style="font-family:var(--mono);color:var(--fg)">run()</code> decides. Your existing CI, tests, and PR reviews <em style="font-style:normal;color:var(--fg)">become</em> the evidence.</p>
+    <div class="code">
+      <div class="code-head">
+        <span class="fname">code-agent.ts</span>
+        <button class="copy" id="copybtn" type="button">copy</button>
+      </div>
+<pre><code id="snippet"><span class="tok-k">const</span> r = <span class="tok-k">new</span> <span class="tok-f">Recede</span>({ ledger: <span class="tok-k">new</span> <span class="tok-f">MemoryLedger</span>(), checkpoint: <span class="tok-f">consoleCheckpoint</span>(), policy });
+
+<span class="tok-c">// Verify = did it right (CI green).  Validate = did the right thing (intent-fit).</span>
+<span class="tok-k">const</span> ciGreen  = check.<span class="tok-f">verify</span>(<span class="tok-s">"ci"</span>, io =&gt; io.output.ci === <span class="tok-s">"green"</span>);
+<span class="tok-k">const</span> intentOK = check.<span class="tok-f">validate</span>(<span class="tok-s">"intent-fit"</span>, <span class="tok-k">async</span> io =&gt; ({ ok: <span class="tok-k">await</span> <span class="tok-f">reviewMatchesIntent</span>(io.intent, io.diff), confidence: <span class="tok-n">0.8</span> }));
+
+<span class="tok-k">const</span> outcome = <span class="tok-k">await</span> r.<span class="tok-f">run</span>(() =&gt; agent.<span class="tok-f">implement</span>(ticket), {
+  actor:    <span class="tok-s">"code-agent"</span>,
+  taskType: <span class="tok-s">"code.fix"</span>,
+  intent:   <span class="tok-s">`Fix ${ticket.id}: ${ticket.title}`</span>,
+  risk:     <span class="tok-s">"reversible.low"</span>,
+  checks:   [ciGreen, intentOK],
+});
+
+<span class="tok-c">// The gate is IMPLICIT — run() decides whether a human is asked.</span>
+outcome.result;      <span class="tok-c">// the change (or the human-edited version)</span>
+outcome.trust;       <span class="tok-c">// { before, after, delta } for (code-agent, code.fix)</span>
+outcome.checkpoint;  <span class="tok-c">// undefined once review has receded for low-risk fixes</span>
+outcome.warrant;     <span class="tok-c">// the hash-linked chain: intent -&gt; diff -&gt; checks -&gt; outcome</span></code></pre>
+    </div>
+    <p class="postcode">
+      As the ledger accrues verified, validated changes, that same call site graduates from
+      <b>"always ask a human"</b> to <b>"merge autonomously"</b> — and reverts the moment
+      the agent regresses. You don't rewire anything. The trajectory does it.
+    </p>
+    <p class="postcode" style="margin-top:12px;color:var(--fg-faint);font-size:13.5px">
+      The same protocol scales to a higher-stakes frontier — an agent issuing refunds, moving money —
+      riding the identical records, gate, and invariants (<a href="https://github.com/yuvalraz/recede/tree/main/examples/refund" target="_blank" rel="noopener" style="color:var(--fg-dim);text-decoration:underline">examples/refund</a>). But the everyday win is your SDLC.
+    </p>
+  </section>
+
+  <!-- STATUS / SCOPE -->
+  <section class="blk" id="status">
+    <div class="kicker">Status &amp; scope</div>
+    <h2 class="st">v0.1 DRAFT — the protocol is the deliverable; the code is proof.</h2>
+    <p class="sub">Breaking changes expected before 1.0. Designed clean-room from first principles and public prior art only — append-only logs, content addressing, risk matrices, calibration, human-in-the-loop gating, and verification-vs-validation from systems engineering.</p>
+    <div class="status">
+      <div class="box ships">
+        <h3>v0.1 ships</h3>
+        <ul>
+          <li>Normative record schemas + trust-state model, tiers T0–T4, invariants I1–I7</li>
+          <li>Pure <code style="color:var(--fg)">gate()</code> + declarative Policy matrix</li>
+          <li>Pure <code style="color:var(--fg)">update()</code> / <code style="color:var(--fg)">replay()</code> reducers</li>
+          <li>First-class Verify / Validate checks</li>
+          <li>Reference weighting: asymmetric + decay + near-miss ratchet + confidence cap</li>
+          <li>TS reference + Python mirror, in-memory + append-only-file store</li>
+          <li>One CLI checkpoint surface, a cross-language conformance suite, runnable examples: <code style="color:var(--fg)">sdlc</code> (everyday) + <code style="color:var(--fg)">refund</code> (frontier)</li>
+        </ul>
+      </div>
+      <div class="box defer">
+        <h3>Explicitly deferred</h3>
+        <ul>
+          <li>Cryptographic identity / PKI / DIDs (the <code style="color:var(--fg-dim)">sig</code> shape is reserved)</li>
+          <li>ML / statistical scoring beyond the reference weighting</li>
+          <li>Distributed ledgers &amp; consensus</li>
+          <li>A web dashboard — shipping one first would betray the anti-fatigue thesis</li>
+          <li>Multi-agent delegation, framework plugins</li>
+          <li>Compliance-framework mapping</li>
+        </ul>
+      </div>
+    </div>
+    <div class="cta" style="margin-top:34px">
+      <a class="btn primary" href="https://github.com/yuvalraz/recede" target="_blank" rel="noopener">Star it on GitHub →</a>
+      <a class="btn ghost" href="https://github.com/yuvalraz/recede/blob/main/SPEC.md" target="_blank" rel="noopener">Read the full SPEC</a>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>Apache-2.0 &nbsp;·&nbsp; © 2026 Yuval Raz</div>
+    <div class="links">
+      <a href="https://github.com/yuvalraz/recede" target="_blank" rel="noopener">Repository</a>
+      <a href="https://github.com/yuvalraz/recede/blob/main/SPEC.md" target="_blank" rel="noopener">Specification</a>
+      <a href="https://github.com/yuvalraz/recede/blob/main/schemas/recede.schema.json" target="_blank" rel="noopener">Schema</a>
+    </div>
+    <div>A protocol earns respect by being implementable. Take it, build on it, tell me what breaks.</div>
+  </div>
+</footer>
+
+<script>
+// Set stroke-dash length for the draw animation from the real path length (no external deps).
+(function(){
+  var line = document.getElementById('trustline');
+  function primeLine(){
+    if(!line || !line.getTotalLength) return;
+    var len = Math.ceil(line.getTotalLength());
+    line.style.setProperty('--len', len);
+  }
+  primeLine();
+
+  // Replay: re-trigger the CSS animations by cloning the chart's animated nodes.
+  var btn = document.getElementById('replay');
+  var chart = document.getElementById('chart');
+  if(btn && chart){
+    btn.addEventListener('click', function(){
+      var clone = chart.cloneNode(true);
+      chart.parentNode.replaceChild(clone, chart);
+      chart = clone;
+      var nl = chart.querySelector('#trustline');
+      if(nl && nl.getTotalLength) nl.style.setProperty('--len', Math.ceil(nl.getTotalLength()));
+    });
+  }
+
+  // Copy quickstart to clipboard.
+  var copy = document.getElementById('copybtn');
+  var snippet = document.getElementById('snippet');
+  if(copy && snippet){
+    copy.addEventListener('click', function(){
+      var text = snippet.innerText;
+      var done = function(){ copy.textContent = 'copied ✓'; setTimeout(function(){ copy.textContent='copy'; }, 1600); };
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(done, function(){ fallback(text); done(); });
+      } else { fallback(text); done(); }
+    });
+    function fallback(text){
+      var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+      document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(ta);
+    }
+  }
+})();
+</script>
+</body>
+</html>

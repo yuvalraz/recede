@@ -1,0 +1,17 @@
+# Changelog
+
+All notable changes to Recede are documented here. Pre-1.0: breaking changes expected.
+
+## [0.1.0] — Unreleased (DRAFT)
+
+Initial public draft of the Recede protocol.
+
+- **SPEC.md** — records + canonical serialization (null-omitting), trust model, tiers, invariants I1–I7, the pure `gate()`/`update()`/`replay()`, threat model, and conformance (normative core vs the named `recede/ref-weighting-v0.1` profile).
+- **schemas/** — machine-readable JSON Schema for the record types (Intent, Action, Check, Outcome, Checkpoint).
+- **reference/ts** — TypeScript reference implementation (primary), `run()` front door over the eight-op protocol.
+- **reference/py** — Python mirror.
+- **conformance/** — a shared `vectors.json` both implementations replay to a byte-identical TrustState (cross-language conformance).
+- **examples/sdlc** — the everyday case: a coding agent earning autonomy on `code.fix` as verified changes compound, with `code.migrate` never receding.
+- **examples/refund** — the higher-stakes frontier: the same protocol on money-movement, incl. a deferred `REVERTED` outcome.
+- **INTEGRATIONS.md** + **integrations/cc10x** (force-multiplier reference adapter) + **integrations/okf** (Recede ledger → Open Knowledge Format bundle).
+- **site/** — a self-contained landing page.

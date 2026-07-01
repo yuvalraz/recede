@@ -1,0 +1,33 @@
+# Copyright 2026 Yuval Raz — Apache-2.0
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "recede"
+version = "0.1.0"
+description = "Evidence-earned, risk-gated trust for human/agent work — Python reference (mirror of the TypeScript reference)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "Yuval Raz" }]
+keywords = ["agents", "trust", "governance", "human-in-the-loop", "audit", "protocol"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries",
+]
+# ZERO runtime dependencies — stdlib only.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/yuvalraz/recede"
+Specification = "https://github.com/yuvalraz/recede/blob/main/SPEC.md"
+
+[tool.setuptools]
+packages = ["recede"]
+
+[project.scripts]
+recede-demo = "examples.refund_demo:main"

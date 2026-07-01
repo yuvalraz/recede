@@ -1,0 +1,83 @@
+
+──────────────────────────────────────────────────────────────────────────
+  RECEDE — the refund story
+  actor=billing-bot  task=refund.issue  policy=recede.reference@0.1.0
+──────────────────────────────────────────────────────────────────────────
+  Trust is scoped to (actor, task_type). It moves ONLY through sealed
+  Warrants. The gate is a PURE function of (trust, risk, policy): no
+  `if (needsApproval)` lives in the agent — run() decides, replayably.
+
+──────────────────────────────────────────────────────────────────────────
+  1. BASELINE — cold start (T0): every refund pauses for a human
+──────────────────────────────────────────────────────────────────────────
+  refund #1              T0   score=0.114 (+0.114 ) n=1   → CHECKPOINT ↯ human paged (full, APPROVE)
+     warrant: intent:sha256:d → action:sha256:a → VP:sha256:b → VP:sha256:f → cp/APPROVE:sha256:7 → outcome/SUCCESS:sha256:4
+     gate reason: tier T0 requires checkpoint for risk 'financial.reversible'
+     policy_digest pinned on the decision (I6): sha256:e3bbda0bd…
+
+──────────────────────────────────────────────────────────────────────────
+  2. EARNING TRUST — clean, verified + validated refunds accrue trust
+──────────────────────────────────────────────────────────────────────────
+  refund #2              T0   score=0.215 (+0.101 ) n=2   → CHECKPOINT ↯ human paged (full, APPROVE)
+  refund #5              T1   score=0.454 (+0.070 ) n=5   → CHECKPOINT ↯ human paged (full, APPROVE)
+  refund #20             T2   score=0.911 (+0.011 ) n=20  → CHECKPOINT ↯ human paged (brief, APPROVE)
+  refund #26             T3   score=0.957 (+0.006 ) n=26  → autonomous · no human paged
+  refund #40             T3   score=0.992 (+0.001 ) n=40  → autonomous · no human paged
+
+     Oversight receded at refund #26: that is the exact run where
+     the (RiskClass × Tier) matrix flips 'financial.reversible' to AUTONOMOUS.
+
+──────────────────────────────────────────────────────────────────────────
+  3. OVERSIGHT RECEDES — same code, no checkpoint, Warrant still recorded
+──────────────────────────────────────────────────────────────────────────
+  refund #41             T3   score=0.993 (+0.001 ) n=41  → autonomous · no human paged
+     warrant: intent:sha256:7 → action:sha256:7 → VP:sha256:7 → VP:sha256:4 → outcome/SUCCESS:sha256:7
+     The reviewer saw NOTHING for this refund — and that is the product
+     working. The Warrant above is still on the ledger for audit.
+
+──────────────────────────────────────────────────────────────────────────
+  4. STAKES GATE — a $2,000 abuse-flagged refund GATES even at high trust
+──────────────────────────────────────────────────────────────────────────
+  refund #42 ($2000)     gate decided at T3   score=0.993 → CHECKPOINT ↯ human paged (full, REJECT)
+     trust was HIGH (T3, score 0.993) — yet the checkpoint FIRED.
+     gate reason: never_recede: 'irreversible.critical' retains a checkpoint at every tier (I3)
+     'irreversible.critical' is in never_recede[], so it retains a checkpoint
+     at EVERY tier (I3). The reviewer REJECTED it — attention spent exactly
+     where uncertainty × stakes is highest. (That REJECT also dents trust: T3→T2.)
+
+──────────────────────────────────────────────────────────────────────────
+  5. SNAP BACK — three autonomous refunds REVERTED by a next-day fraud check
+──────────────────────────────────────────────────────────────────────────
+  4 clean refunds re-earned autonomy → back to T3 (score 0.774). Now three refunds run UNATTENDED, deferred
+  to a next-day fraud check:
+  refund #43 (defer)     T3   score=0.774 (+0.000 ) n=46  → autonomous · no human paged
+     sealed UNRESOLVED — held out of trust until ground truth arrives (SPEC §6).
+  refund #44 (defer)     T3   score=0.774 (+0.000 ) n=46  → autonomous · no human paged
+     sealed UNRESOLVED — held out of trust until ground truth arrives (SPEC §6).
+  refund #45 (defer)     T3   score=0.774 (+0.000 ) n=46  → autonomous · no human paged
+     sealed UNRESOLVED — held out of trust until ground truth arrives (SPEC §6).
+
+     …next day: the fraud service REVERSES all three. Re-sealing each Warrant:
+       reversal 1: T3  → T0  score 0.774 → 0.164   (demotion — trust lost fast, I4)
+       reversal 2: T0  → T0  score 0.164 → 0.000
+       reversal 3: T0  → T0  score 0.000 → 0.000
+  refund #46             T0   score=0.114 (+0.114 ) n=50  → CHECKPOINT ↯ human paged (full, APPROVE)
+
+     Trust fell to T0 — below the T3 floor 'financial.reversible'
+     needs to run unattended. So the checkpoint SNAPPED BACK automatically on
+     refund #46. No rule was edited; the same call site is gated again.
+
+──────────────────────────────────────────────────────────────────────────
+  6. REPLAY — reconstruct the exact final trust from the stored Warrants (I2)
+──────────────────────────────────────────────────────────────────────────
+     stored   : tier=T0  score=0.114000000  n=50
+     replayed : tier=T0  score=0.114000000  n=50
+     replay() == stored state (invariant I2): TRUE ✓
+     281 records on the ledger. "Why did this run unattended?"
+     is answered by pointing at the receipts — not by trusting a dashboard.
+
+──────────────────────────────────────────────────────────────────────────
+  Trust is a trajectory, not a checkpoint. Oversight receded where the
+  evidence allowed, and snapped back the instant the evidence turned.
+──────────────────────────────────────────────────────────────────────────
+

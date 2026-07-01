@@ -1,0 +1,89 @@
+{
+  "$comment": "Cross-language conformance vector for the Recede protocol (SPEC.md). A deterministic scenario that BOTH reference implementations (reference/ts CANONICAL, reference/py mirror) MUST replay to the identical final TrustState (score to 1e-9, same tier) and produce the identical content-hash for the pinned record. This is the demonstration required by SPEC 9: two implementations are cross-conformant iff, under the SAME declared weighting profile, they replay the same Warrants to the same TrustState.",
+  "version": "0.1.0",
+  "weighting_profile": "recede/ref-weighting-v0.1",
+  "policy": "default",
+  "scope": { "actor": "billing-bot", "task_type": "refund.issue" },
+  "ground_truth_source": "conformance",
+  "notes": [
+    "Each entry is folded in order from cold start via update(state, warrant, policy, idle_ms, drift, now).",
+    "Timestamps (ts) are explicit and idle_ms/drift are supplied per entry so decay is fully deterministic.",
+    "The scenario covers: (A) accrual to a high tier, (B) a human-APPROVE gated financial.reversible run, (C) recede via an autonomous REVERTED outcome (near-miss ratchet + forced demotion), (D) recovery, and (E) a staleness decay gap. The never_recede gate is asserted separately in gate_checks.",
+    "idle_ms 2592000000 == one 30-day half-life (the reference decay.idle_half_life_ms)."
+  ],
+  "entries": [
+    { "ts": "2026-01-01T00:00:00.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:01.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:02.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:03.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:04.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:05.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:06.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:07.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:08.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:09.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:10.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:11.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:12.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:13.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:14.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:15.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:16.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:17.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:18.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:19.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:20.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:21.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:22.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:23.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:24.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:25.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:26.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:27.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:28.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T00:00:29.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-01T01:00:00.000Z", "risk": "financial.reversible", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS", "decision": "APPROVE" },
+    { "ts": "2026-01-02T00:00:00.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }], "result": "REVERTED", "$note": "deferred outcome resolved REVERTED by a next-day fraud check; ran autonomously => near-miss ratchet + forced demotion" },
+    { "ts": "2026-01-02T00:10:00.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-02T00:20:00.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-01-02T00:30:00.000Z", "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS" },
+    { "ts": "2026-03-01T00:00:00.000Z", "now": "2026-03-01T00:00:00.000Z", "idle_ms": 2592000000, "drift": 0.5, "risk": "read.only", "checks": [{ "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0 }, { "kind": "VALIDATE", "verdict": "PASS", "confidence": 0.9 }], "result": "SUCCESS", "$note": "one 30-day half-life idle + drift 0.5 => staleness decay before this clean fold" }
+  ],
+  "checkpoints": {
+    "$comment": "Optional intermediate assertion: state right BEFORE folding entry index 31 (the REVERTED entry). Demonstrates the peak the scope reached before oversight snapped back.",
+    "before_index": 31,
+    "expected": { "tier": "T3", "score": 0.9765336589358261, "sample_count": 31 }
+  },
+  "expected_final_trust": {
+    "actor": "billing-bot",
+    "task_type": "refund.issue",
+    "tier": "T2",
+    "score": 0.604429818301081,
+    "confidence": 0.9927547697891664,
+    "sample_count": 36
+  },
+  "gate_checks": [
+    {
+      "$comment": "never_recede: irreversible.critical retains a checkpoint even at maximal trust (I3).",
+      "state": { "tier": "T4", "score": 1.0, "confidence": 1.0, "sample_count": 999 },
+      "risk": "irreversible.critical",
+      "expect_autonomous": false
+    }
+  ],
+  "expected_record_hash": {
+    "$comment": "The content-hash of a pinned OUTCOME record with only plain scalar fields (no digest()-derived values). Both implementations MUST produce this id from the same field values, proving canonicalization + content-addressing agree across languages.",
+    "record": {
+      "kind": "OUTCOME",
+      "actor": "billing-bot",
+      "ts": "2026-01-01T00:00:00.000Z",
+      "warrant_ref": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "prev": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "result": "SUCCESS",
+      "ground_truth_source": "conformance",
+      "deferred_until": null,
+      "human_touched": false
+    },
+    "canonical": "{\"actor\":\"billing-bot\",\"ground_truth_source\":\"conformance\",\"human_touched\":false,\"kind\":\"OUTCOME\",\"prev\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"result\":\"SUCCESS\",\"ts\":\"2026-01-01T00:00:00.000Z\",\"warrant_ref\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\"}",
+    "id": "sha256:db422cfb264d428df463eadeb5621d380483509279a30dfdfda9abca68a41cd8"
+  }
+}
