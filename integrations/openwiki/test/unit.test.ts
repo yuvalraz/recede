@@ -15,8 +15,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import {
   TRUST_CONSTANTS as C,
+  DOC_MAP_TASK,
+  DOC_MAP_RISK,
+  EVENT_PREFIX,
   sealRaise,
   diffDecay,
   timeDecay,
@@ -24,8 +28,18 @@ import {
   extractSources,
   emptySidecar,
   foldEvent,
+  eventOf,
+  foldWarrants,
+  docPolicy,
+  runChecks,
+  decayChecks,
+  sampleChecks,
+  sealChecks,
+  sealEventWarrant,
+  type SampleResult,
   type WikiEvent,
 } from "../openwiki-adapter.ts";
+import { MemoryLedger, open, type Warrant } from "../../../reference/ts/src/index.ts";
 
 // Fixture tree for extraction tests: real files, no mocks.
 const tmpRoot = mkdtempSync(join(tmpdir(), "openwiki-adapter-test-"));
@@ -228,4 +242,170 @@ test("sample event: stores lastSample, band = max severity(scoreBand, sampleBand
     T3,
   );
   assert.equal(s3.pages["openwiki/b.md"].band, "warning");
+});
+
+// ---------------------------------------------------------------------------
+// Task 1.4: warrant sealing + ledger round-trip + the replay property
+// ---------------------------------------------------------------------------
+
+/** Deterministic injected clock (cc10x demo pattern). */
+function makeClock(startIso = "2026-07-02T09:00:00.000Z"): () => string {
+  let t = Date.parse(startIso);
+  return () => new Date((t += 1000)).toISOString();
+}
+
+const cleanRunChecks = () =>
+  runChecks({ childExit: 0, pageCount: 1, gitHeadSource: "last-update", planSnapshot: "captured" });
+
+test("sealEventWarrant seals a doc.map warrant whose expected_effects[0] round-trips the event", async () => {
+  const ledger = new MemoryLedger();
+  const ev: WikiEvent = { kind: "run", runId: "r1", gitHead: "abc", gitHeadSource: "last-update",
+    planSnapshot: "openwiki/.trust/plans/t0.md", pages: [{ path: "openwiki/a.md", sources: [], contentDigest: "d" }], removed: [] };
+  const { warrant, after } = await sealEventWarrant({ ledger, policy: docPolicy(), generator: "openwiki@test",
+    event: ev, intent: "wiki run", checks: cleanRunChecks(), groundTruth: "openwiki-artifacts" });
+  assert.deepEqual(eventOf(warrant), ev);
+  assert.equal(warrant.outcome?.result, "SUCCESS");
+  assert.equal(after.sample_count, 1);
+  assert.equal(warrant.intent.task_type, DOC_MAP_TASK);
+  assert.equal(warrant.intent.declared_risk, DOC_MAP_RISK);
+});
+
+test("plan-snapshot: absent seals SUCCESS with an INCONCLUSIVE check (honest gap, reduced signal)", async () => {
+  const ledger = new MemoryLedger();
+  const ev: WikiEvent = { kind: "run", runId: "r1", gitHead: "abc", gitHeadSource: "last-update",
+    planSnapshot: null, pages: [{ path: "openwiki/a.md", sources: [], contentDigest: "d" }], removed: [] };
+  const { warrant } = await sealEventWarrant({ ledger, policy: docPolicy(), generator: "openwiki@test",
+    event: ev, intent: "wiki run",
+    checks: runChecks({ childExit: 0, pageCount: 1, gitHeadSource: "degraded-head", planSnapshot: "absent" }),
+    groundTruth: "openwiki-artifacts" });
+  assert.equal(warrant.outcome?.result, "SUCCESS"); // evidence gap is NOT failure
+  const snap = warrant.checks.find((c) => c.method === "openwiki:plan-snapshot");
+  assert.equal(snap?.verdict, "INCONCLUSIVE");
+  assert.equal(snap?.confidence, 0);
+  const head = warrant.checks.find((c) => c.method === "openwiki:githead-binding");
+  assert.equal(head?.verdict, "INCONCLUSIVE"); // degraded head: same honest-gap rule
+});
+
+test("a sample with action-band findings seals FAILURE and costs lane trust", async () => {
+  const ledger = new MemoryLedger();
+  const runEv: WikiEvent = { kind: "run", runId: "r1", gitHead: "abc", gitHeadSource: "last-update",
+    planSnapshot: null, pages: [{ path: "openwiki/a.md", sources: ["src/x.ts"], contentDigest: "d" }], removed: [] };
+  await sealEventWarrant({ ledger, policy: docPolicy(), generator: "openwiki@test",
+    event: runEv, intent: "wiki run", checks: cleanRunChecks(), groundTruth: "openwiki-artifacts" });
+  const results: SampleResult[] = [
+    { page: "openwiki/a.md", refsChecked: 1, refsBroken: 1, anyMissing: true, evidence: ["missing: src/x.ts"] },
+  ];
+  const { warrant, before, after } = await sealEventWarrant({ ledger, policy: docPolicy(), generator: "openwiki@test",
+    event: { kind: "sample", runId: "r2", results }, intent: "wiki sample",
+    checks: sampleChecks(results), groundTruth: "mechanical-sample" });
+  assert.equal(warrant.outcome?.result, "FAILURE");
+  assert.ok(before.score > 0, "lane must have trust to lose");
+  assert.ok(after.score < before.score, "FAILURE must cost lane trust");
+});
+
+test("TrustState.updated is a string after a seal->update cycle (survives JSON round-trip)", async () => {
+  // Gap-review advisory: passing the now FUNCTION to update() type-strips
+  // silently and corrupts TrustState.updated on JSON serialization.
+  const ledger = new MemoryLedger();
+  const ev: WikiEvent = { kind: "run", runId: "r1", gitHead: "abc", gitHeadSource: "last-update",
+    planSnapshot: null, pages: [{ path: "openwiki/a.md", sources: [], contentDigest: "d" }], removed: [] };
+  const { after } = await sealEventWarrant({ ledger, policy: docPolicy(), generator: "openwiki@test",
+    event: ev, intent: "wiki run", checks: cleanRunChecks(), groundTruth: "openwiki-artifacts",
+    now: makeClock() });
+  assert.equal(typeof after.updated, "string");
+  assert.ok(!Number.isNaN(Date.parse(after.updated as string)), "updated must be a parseable timestamp");
+  const thawed = JSON.parse(JSON.stringify(after));
+  assert.equal(thawed.updated, after.updated); // a function here would vanish on serialization
+});
+
+test("PROPERTY: foldWarrants over the ledger == incremental foldEvent chain (deep-equal INCLUDING updated)", async () => {
+  const ledger = new MemoryLedger();
+  const now = makeClock();
+  const gen = "openwiki@test";
+  const nowMs = Date.parse("2026-07-02T10:00:00.000Z");
+  const results: SampleResult[] = [
+    { page: "openwiki/b.md", refsChecked: 2, refsBroken: 0, anyMissing: false, evidence: [] },
+  ];
+  const events: WikiEvent[] = [
+    { kind: "run", runId: "p1", gitHead: "h1", gitHeadSource: "last-update", planSnapshot: null,
+      pages: [
+        { path: "openwiki/a.md", sources: ["src/parser.ts"], contentDigest: "d1" },
+        { path: "openwiki/b.md", sources: ["src/utils.ts"], contentDigest: "d2" },
+        { path: "openwiki/c.md", sources: [], contentDigest: "d3" },
+      ], removed: [] },
+    { kind: "decay", runId: "p2", fromHead: "h1", toHead: "h2", changedFiles: ["src/parser.ts"], nowMs },
+    { kind: "seal", runId: "p3", pages: ["openwiki/a.md"], human: "yuval" },
+    { kind: "sample", runId: "p4", results },
+  ];
+  const checksFor = (ev: WikiEvent) =>
+    ev.kind === "run" ? cleanRunChecks()
+      : ev.kind === "decay" ? decayChecks({ changedFiles: 1, affectedPages: 2 })
+      : ev.kind === "seal" ? sealChecks("yuval")
+      : sampleChecks(ev.results);
+  let incremental = emptySidecar(gen);
+  for (const ev of events) {
+    const { warrant } = await sealEventWarrant({ ledger, policy: docPolicy(), generator: gen,
+      event: ev, intent: `wiki ${ev.kind}`, checks: checksFor(ev), groundTruth: "test",
+      humanTouched: ev.kind === "seal", now });
+    incremental = foldEvent(incremental, ev, warrant.intent.id, warrant.intent.ts);
+  }
+  const replayed = foldWarrants(gen, ledger.warrantsFor(gen, DOC_MAP_TASK));
+  assert.deepEqual(replayed, incremental);
+  // Byte-identical, exceeding the design's "equal except timestamps" floor:
+  assert.equal(JSON.stringify(replayed, null, 2), JSON.stringify(incremental, null, 2));
+});
+
+test("PROPERTY: scores stay within [EPSILON, 1] across arbitrary event sequences", () => {
+  let seed = 42;
+  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0), seed / 2 ** 32);
+  let s = foldEvent(emptySidecar("openwiki@test"), runEvent(), "w0", T0);
+  let ms = Date.parse(T0);
+  for (let i = 0; i < 50; i++) {
+    ms += Math.floor(rnd() * C.TIME_HALF_LIFE_MS);
+    const paths = Object.keys(s.pages);
+    const path = paths[Math.floor(rnd() * paths.length)];
+    const pick = rnd();
+    let ev: WikiEvent;
+    if (pick < 0.3) {
+      ev = { kind: "seal", runId: `s${i}`, pages: [path], human: "h" };
+    } else if (pick < 0.6) {
+      ev = { kind: "decay", runId: `d${i}`, fromHead: "x", toHead: "y",
+        changedFiles: rnd() < 0.5 ? ["src/parser.ts"] : [], nowMs: ms };
+    } else if (pick < 0.8) {
+      ev = { kind: "sample", runId: `m${i}`,
+        results: [{ page: path, refsChecked: 3, refsBroken: Math.floor(rnd() * 4), anyMissing: rnd() < 0.3, evidence: [] }] };
+    } else {
+      ev = runEvent({ runId: `r${i}`, gitHead: `h${i}` });
+    }
+    s = foldEvent(s, ev, `w${i}`, new Date(ms).toISOString());
+    for (const p of Object.values(s.pages)) {
+      assert.ok(p.score >= C.EPSILON && p.score <= 1, `score ${p.score} out of [EPSILON, 1] at event ${i}`);
+    }
+  }
+});
+
+test("eventOf throws naming the warrant id on a malformed payload", () => {
+  const intent = open({ actor: "openwiki@test", task_type: DOC_MAP_TASK, proposed_action: "x",
+    declared_risk: DOC_MAP_RISK, expected_effects: [EVENT_PREFIX + "{not json"], ts: T0 });
+  const w: Warrant = { intent, checks: [], checkpoints: [] };
+  assert.throws(() => eventOf(w), new RegExp(intent.id));
+});
+
+test("eventOf returns undefined for non-openwiki warrants", () => {
+  const intent = open({ actor: "someone@else", task_type: "other.task", proposed_action: "x",
+    declared_risk: "read.only", ts: T0 });
+  assert.equal(eventOf({ intent, checks: [], checkpoints: [] }), undefined);
+});
+
+test("distinct events yield distinct warrant ids (runId uniqueness)", async () => {
+  const ledger = new MemoryLedger();
+  const frozen = () => "2026-07-02T09:00:00.000Z"; // identical clock: only runId differs
+  const mk = (runId: string): WikiEvent => ({ kind: "run", runId, gitHead: "abc",
+    gitHeadSource: "last-update", planSnapshot: null,
+    pages: [{ path: "openwiki/a.md", sources: [], contentDigest: "d" }], removed: [] });
+  const one = await sealEventWarrant({ ledger, policy: docPolicy(), generator: "openwiki@test",
+    event: mk(randomUUID()), intent: "wiki run", checks: cleanRunChecks(), groundTruth: "t", now: frozen });
+  const two = await sealEventWarrant({ ledger, policy: docPolicy(), generator: "openwiki@test",
+    event: mk(randomUUID()), intent: "wiki run", checks: cleanRunChecks(), groundTruth: "t", now: frozen });
+  assert.notEqual(one.warrant.intent.id, two.warrant.intent.id);
 });

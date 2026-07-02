@@ -24,6 +24,23 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  act,
+  check,
+  coldStart,
+  defaultPolicy,
+  makeCheckRecord,
+  open,
+  seal,
+  update,
+  type CheckRecord,
+  type CheckSpec,
+  type Ledger,
+  type Policy,
+  type TrustState,
+  type Warrant,
+} from "../../reference/ts/src/index.ts";
+
 // ---------------------------------------------------------------------------
 // Constants + trust math (pure)
 // ---------------------------------------------------------------------------
@@ -258,4 +275,192 @@ export function foldEvent(prev: Sidecar, event: WikiEvent, warrantId: string, ts
     }
   }
   return next;
+}
+
+/**
+ * Recover the WikiEvent that rode in a warrant's `expected_effects[0]`.
+ * Returns undefined for warrants that are not openwiki events; throws (naming
+ * the warrant id) when the payload carries the prefix but is not valid JSON —
+ * a corrupt ledger must fail loudly, not fold silently.
+ */
+export function eventOf(w: Warrant): WikiEvent | undefined {
+  const payload = w.intent.expected_effects[0];
+  if (!payload || !payload.startsWith(EVENT_PREFIX)) return undefined;
+  try {
+    return JSON.parse(payload.slice(EVENT_PREFIX.length)) as WikiEvent;
+  } catch {
+    throw new Error(`malformed openwiki event payload in warrant ${w.intent.id}`);
+  }
+}
+
+/**
+ * Rebuild the sidecar from the warrant chain alone. Uses the SAME foldEvent
+ * as the incremental path with (intent.id, intent.ts), so the result is
+ * byte-identical to the incrementally maintained state.
+ */
+export function foldWarrants(generator: string, warrants: Warrant[]): Sidecar {
+  let sidecar = emptySidecar(generator);
+  for (const w of warrants) {
+    const event = eventOf(w);
+    if (!event) continue;
+    sidecar = foldEvent(sidecar, event, w.intent.id, w.intent.ts);
+  }
+  return sidecar;
+}
+
+// ---------------------------------------------------------------------------
+// Policy + check builders
+// ---------------------------------------------------------------------------
+
+/**
+ * The docs policy: the reference policy (matrix + weighting unchanged) with a
+ * docs-flavored id/version. Kept as a function so the pure gate always sees a
+ * fresh, digest-stable Policy.
+ */
+export function docPolicy(): Policy {
+  return { ...defaultPolicy(), id: "recede.openwiki.docs", version: "0.1.0" };
+}
+
+/**
+ * Checks for a `run` event. Degraded gitHead binding and a missed plan
+ * snapshot are evidence GAPS, not failures: the check THROWS so it records
+ * INCONCLUSIVE (conf 0) — the outcome still seals SUCCESS but the lane signal
+ * drops from +1.0 to +0.3 (reference weighting).
+ */
+export function runChecks(sig: {
+  childExit: number;
+  pageCount: number;
+  gitHeadSource: "last-update" | "degraded-head";
+  planSnapshot: "captured" | "absent";
+}): CheckSpec[] {
+  return [
+    check.verify("openwiki:child-exit", () => sig.childExit === 0),
+    check.verify("openwiki:wiki-valid", () => sig.pageCount > 0),
+    check.verify("openwiki:githead-binding", () => {
+      if (sig.gitHeadSource !== "last-update") throw new Error("degraded-head: evidence gap, not failure");
+      return true;
+    }),
+    check.verify("openwiki:plan-snapshot", () => {
+      if (sig.planSnapshot !== "captured") throw new Error("plan snapshot absent: evidence gap, not failure");
+      return true;
+    }),
+  ];
+}
+
+/** Checks for a `decay` event: mechanical recording; evidence rides in the name. */
+export function decayChecks(sig: { changedFiles: number; affectedPages: number }): CheckSpec[] {
+  return [
+    check.verify(
+      `openwiki:decay:changed=${sig.changedFiles}:affected=${sig.affectedPages}`,
+      () => sig.changedFiles >= 0 && sig.affectedPages >= 0,
+    ),
+  ];
+}
+
+/**
+ * Checks for a `sample` event: one VERIFY per sampled page, failing when the
+ * finding alone reaches the action band — a broken wiki costs the generator
+ * lane trust (FAIL check => FAILURE outcome => negative signal). Intended.
+ */
+export function sampleChecks(results: SampleResult[]): CheckSpec[] {
+  return results.map((r) =>
+    check.verify(`openwiki:sample:${r.page}`, () => {
+      const finding: SampleFinding = {
+        brokenRatio: r.refsChecked ? r.refsBroken / r.refsChecked : 0,
+        anyMissing: r.anyMissing,
+      };
+      return bandFor(1, finding) !== "action";
+    }),
+  );
+}
+
+/** Checks for a `seal` event: a human VALIDATE; the human id rides in the name. */
+export function sealChecks(human: string): CheckSpec[] {
+  return [check.validate(`openwiki:human-seal:${human}`, () => ({ ok: true, confidence: 0.95 }))];
+}
+
+// ---------------------------------------------------------------------------
+// Warrant sealing (core ops — deliberately NOT Recede.run())
+// ---------------------------------------------------------------------------
+
+/**
+ * Seal one wiki event as a `doc.map` warrant through the core ops directly
+ * (open -> act -> checks -> seal -> update -> putTrust), mirroring
+ * recede.ts's run() minus the gate/checkpoint step. This is recorder posture:
+ * Recede.run() fires a checkpoint whenever the gate demands one, and the
+ * default autoApprove() would FABRICATE a human APPROVE on every mechanical
+ * event at T0. The gate still manifests where it belongs — in the fence
+ * language, `status` posture, and the CI template (consumers of trust).
+ */
+export async function sealEventWarrant(opts: {
+  ledger: Ledger;
+  policy: Policy;
+  generator: string;
+  event: WikiEvent;
+  intent: string;
+  checks: CheckSpec[];
+  groundTruth: string;
+  humanTouched?: boolean;
+  now?: () => string;
+}): Promise<{ warrant: Warrant; before: TrustState; after: TrustState }> {
+  const now = opts.now ?? (() => new Date().toISOString());
+  const before =
+    opts.ledger.getTrust(opts.generator, DOC_MAP_TASK) ?? coldStart(opts.generator, DOC_MAP_TASK);
+
+  // The event rides VERBATIM in expected_effects[0]: persisted as-is AND
+  // covered by the intent's content hash (inputs would persist digest-only).
+  const intent = open({
+    actor: opts.generator,
+    task_type: DOC_MAP_TASK,
+    proposed_action: opts.intent,
+    declared_risk: DOC_MAP_RISK,
+    expected_effects: [EVENT_PREFIX + JSON.stringify(opts.event)],
+    ts: now(),
+  });
+  opts.ledger.append(intent);
+
+  const action = act({
+    intent,
+    operations: [`openwiki:${opts.event.kind}`],
+    result: { kind: opts.event.kind },
+    ts: now(),
+  });
+  opts.ledger.append(action);
+
+  const checkRecords: CheckRecord[] = [];
+  for (const spec of opts.checks) {
+    const res = await spec.run({ intent: opts.intent, input: undefined, output: undefined });
+    const rec = makeCheckRecord({
+      action,
+      check_kind: res.check_kind,
+      method: res.name,
+      verdict: res.verdict,
+      confidence: res.confidence,
+      evidence_refs: res.evidence_refs,
+      ts: now(),
+    });
+    opts.ledger.append(rec);
+    checkRecords.push(rec);
+  }
+
+  const anyFail = checkRecords.some((c) => c.verdict === "FAIL");
+  const outcome = seal({
+    warrant_ref: intent.id,
+    actor: opts.generator,
+    result: anyFail ? "FAILURE" : "SUCCESS",
+    ground_truth_source: opts.groundTruth,
+    human_touched: opts.humanTouched ?? false,
+    prev: checkRecords[checkRecords.length - 1]?.id ?? action.id,
+    ts: now(),
+  });
+  opts.ledger.append(outcome);
+
+  const warrant: Warrant = { intent, action, checks: checkRecords, checkpoints: [], outcome };
+  // Gap-review advisory (binding): update() takes opts.now as a STRING —
+  // `{ now }` (the function) would type-strip silently and corrupt
+  // TrustState.updated on JSON serialization. Always call it: `{ now: now() }`.
+  const { state: after } = update(before, warrant, opts.policy, { now: now() });
+  opts.ledger.putTrust(after);
+
+  return { warrant, before, after };
 }
