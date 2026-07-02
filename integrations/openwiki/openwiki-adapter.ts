@@ -21,6 +21,9 @@
  * wall clock), which is what makes `replay` byte-identical.
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 // ---------------------------------------------------------------------------
 // Constants + trust math (pure)
 // ---------------------------------------------------------------------------
@@ -87,4 +90,34 @@ export function bandFor(score: number, sample?: SampleFinding | null): Band {
     }
   }
   return BAND_SEVERITY[sampleBand] > BAND_SEVERITY[scoreBand] ? sampleBand : scoreBand;
+}
+
+// ---------------------------------------------------------------------------
+// Source-ref extraction (mechanical, existence-filtered)
+// ---------------------------------------------------------------------------
+
+/** Path-like token with an extension and an optional #symbol fragment. */
+const REF_RE = /[\w./-]+\.\w+(#[\w$.]+)?/g;
+
+/**
+ * Extract repo-relative source refs from a wiki page's markdown: path-like
+ * tokens containing a "/", kept only when their file part (before any
+ * "#symbol" fragment) exists under repoRoot. Absolute paths and URLs are
+ * rejected; duplicates dedupe preserving first-seen order.
+ */
+export function extractSources(markdown: string, repoRoot: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of markdown.matchAll(REF_RE)) {
+    const token = m[0];
+    if (!token.includes("/")) continue; // bare words like foo.bar
+    if (token.startsWith("/") || token.includes("://")) continue; // absolute / URL
+    if (m.index >= 3 && markdown.slice(m.index - 3, m.index) === "://") continue; // URL tail
+    const filePart = token.split("#", 1)[0];
+    if (!existsSync(join(repoRoot, filePart))) continue;
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push(token);
+  }
+  return out;
 }

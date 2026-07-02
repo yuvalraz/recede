@@ -12,13 +12,23 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   TRUST_CONSTANTS as C,
   sealRaise,
   diffDecay,
   timeDecay,
   bandFor,
+  extractSources,
 } from "../openwiki-adapter.ts";
+
+// Fixture tree for extraction tests: real files, no mocks.
+const tmpRoot = mkdtempSync(join(tmpdir(), "openwiki-adapter-test-"));
+mkdirSync(join(tmpRoot, "src"), { recursive: true });
+writeFileSync(join(tmpRoot, "src", "parser.ts"), "export function parseAll() {}\n");
+writeFileSync(join(tmpRoot, "src", "utils.ts"), "export function helperFn() {}\n");
 
 // ---------------------------------------------------------------------------
 // Task 1.1: trust math + banding
@@ -47,4 +57,26 @@ test("banding: score drives ok|warning; only samples reach action", () => {
   assert.equal(bandFor(0.9, { brokenRatio: 0.2, anyMissing: false }), "warning"); // 20% boundary: warning
   assert.equal(bandFor(0.9, { brokenRatio: 0.21, anyMissing: false }), "action"); // 21%: action
   assert.equal(bandFor(0.9, { brokenRatio: 0, anyMissing: true }), "action");     // any cited file missing
+});
+
+// ---------------------------------------------------------------------------
+// Task 1.2: source-ref extraction
+// ---------------------------------------------------------------------------
+
+test("extractSources keeps only tree-existing path-like tokens, preserves #symbol fragments", () => {
+  const md = "See `src/parser.ts` and [utils](src/utils.ts#helperFn).\nGhost: src/gone.ts. Not-a-path: foo.bar sentence.";
+  assert.deepEqual(extractSources(md, tmpRoot), ["src/parser.ts", "src/utils.ts#helperFn"]);
+});
+
+test("extractSources returns [] for prose without refs", () => {
+  assert.deepEqual(extractSources("just words, no paths here", tmpRoot), []);
+});
+
+test("extractSources dedupes preserving order, rejects absolute paths and URLs", () => {
+  const md = [
+    "First `src/parser.ts`, again src/parser.ts.",
+    "Absolute: /src/parser.ts must not count.",
+    "URL: https://example.com/src/parser.ts must not count either.",
+  ].join("\n");
+  assert.deepEqual(extractSources(md, tmpRoot), ["src/parser.ts"]);
 });
