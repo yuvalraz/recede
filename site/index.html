@@ -9,8 +9,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Recede — trust is a trajectory, not a checkpoint</title>
-<meta name="description" content="An open protocol for evidence-earned, risk-gated trust in agentic work. AI agents earn autonomy one verified action at a time — review recedes where the evidence says it can, and snaps back the instant quality regresses.">
+<title>Recede · trust is a trajectory, not a checkpoint</title>
+<meta name="description" content="An open protocol for evidence-earned, risk-gated trust in agentic work. AI agents earn autonomy one verified action at a time. Review recedes where the evidence says it can, and snaps back the instant quality regresses.">
 <style>
   :root{
     --ink:#0c0e12;
@@ -226,7 +226,7 @@
     <div class="eyebrow"><span class="dot"></span>An open trust protocol for agentic work</div>
     <h1 class="hz">Trust is a <em>trajectory</em>, not a checkpoint.</h1>
     <p class="lede">
-      AI agents earn autonomy from evidence, <b>one verified action at a time</b> —
+      AI agents earn autonomy from evidence, <b>one verified action at a time</b>,
       and human review <b>recedes exactly where the evidence says it can</b>, with a
       receipt for every action you no longer read. An open, language- and
       transport-agnostic protocol. Zero runtime dependencies.
@@ -276,7 +276,7 @@
 
           <!-- receded (autonomous) band: where the human sees nothing -->
           <rect x="360" y="34" width="230" height="126" fill="#6ee7a8" opacity="0.05"/>
-          <text x="368" y="52" font-family="var(--mono)" font-size="11" fill="#6ee7a8" opacity="0.75">review receded — autonomous merges</text>
+          <text x="368" y="52" font-family="var(--mono)" font-size="11" fill="#6ee7a8" opacity="0.75">review receded: autonomous merges</text>
 
           <!-- filled area under the trust curve -->
           <path class="anim-fill" fill="url(#area)" d="
@@ -356,12 +356,12 @@
         <span><i style="background:rgba(110,231,168,.18)"></i> receded / autonomous</span>
       </div>
       <p class="caption">
-        <b>The entry manifestation</b> — where the pain is sharpest today. One coding agent
+        <b>The entry manifestation</b>: where the pain is sharpest today. One coding agent
         on <b>code.fix</b> the whole way across. Day 1, <b>every change is
-        reviewed</b> — Verify (CI, tests, types green) and Validate (it did what the ticket
-        asked, at quality) — and the diamonds thin out as clean fixes compound until review
+        reviewed</b>: Verify (CI, tests, types green) and Validate (it did what the ticket
+        asked, at quality). The diamonds thin out as clean fixes compound until review
         has <b>receded</b> and low-risk fixes merge autonomously. A <b>schema.migrate</b>
-        still gates every time — irreversible actions never recede. Then an autonomous fix is
+        still gates every time: irreversible actions never recede. Then an autonomous fix is
         <b>reverted in staging</b>, trust drops below the tier floor, and review <b>snaps back
         automatically</b>. No one edited a rule; the evidence moved.
       </p>
@@ -373,22 +373,22 @@
     <div class="kicker">The inversion</div>
     <h2 class="st">Everyone else fights agent review fatigue by shipping <em style="font-style:normal;color:var(--fg-dim)">more to watch.</em></h2>
     <p class="sub">
-      Put an AI agent on consequential work — code, support replies, refunds, document intake —
+      Put an AI agent on consequential work (code, support replies, refunds, document intake)
       and a human is nominally reviewing it. But no one can meaningfully review everything an
       agent does at agent speed, so review collapses into <b style="color:var(--fg)">rubber-stamping</b>
       (review theater) or <b style="color:var(--fg)">bottlenecking</b> (the agent's speed is wasted).
-      Engineering teams feel it first in the dev loop — nobody can read 40 agent PRs a day — which
+      Engineering teams feel it first in the dev loop (nobody can read 40 agent PRs a day), which
       is why Recede starts there. It is not where it ends. The root cause
-      is a trust-calibration bug: trust today is <b style="color:var(--fg)">mis-attributed</b> — one global
+      is a trust-calibration bug: trust today is <b style="color:var(--fg)">mis-attributed</b>: one global
       "do I trust the AI?" verdict, when <em style="font-style:normal">trusted to fix a flaky test</em> and
       <em style="font-style:normal">trusted to run a migration</em> are different questions, and neither
-      says anything about <em style="font-style:normal">trusted to answer a customer</em> — and
-      <b style="color:var(--fg)">mis-calibrated</b> — granted by feeling, not evidence. The usual answer is a
+      says anything about <em style="font-style:normal">trusted to answer a customer</em>. And it is
+      <b style="color:var(--fg)">mis-calibrated</b>: granted by feeling, not evidence. The usual answer is a
       bigger dashboard, a 0–1000 score, more alerts. Wrong direction.
       <br><br>
       Fix attribution (per <code style="font-family:var(--mono);color:var(--fg)">Actor × TaskType</code>) and calibration
       (evidence + confidence), and <b style="color:var(--fg)">small daily verified wins compound</b> into earned, bounded
-      autonomy — so review recedes exactly where warranted.
+      autonomy, so review recedes exactly where warranted.
     </p>
     <div class="inversion">
       <div class="cell from">
@@ -398,7 +398,7 @@
       <div class="arrow"><span>invert&nbsp;→</span></div>
       <div class="cell to">
         <div class="lbl">Recede</div>
-        <div class="big">Measure trust per capability → let review recede → read <u>fewer</u> PRs, on purpose — and snap back the instant a merge regresses.</div>
+        <div class="big">Measure trust per capability → let review recede → read <u>fewer</u> PRs, on purpose, and snap back the instant a merge regresses.</div>
       </div>
     </div>
   </section>
@@ -410,7 +410,7 @@
     <div class="model">
       <div class="card">
         <h3>Trust is scoped</h3>
-        <p>Held per <code>(Actor, TaskType)</code> — never one global agent score. Trusted on <code>code.fix</code> ≠ trusted on <code>code.migrate</code>. Review recedes in one lane while staying tight in another.</p>
+        <p>Held per <code>(Actor, TaskType)</code>, never one global agent score. Trusted on <code>code.fix</code> ≠ trusted on <code>code.migrate</code>. Review recedes in one lane while staying tight in another.</p>
       </div>
       <div class="card">
         <h3>Every action emits a Warrant</h3>
@@ -418,7 +418,7 @@
       </div>
       <div class="card">
         <h3>V&amp;V is first-class and split</h3>
-        <p><b style="color:var(--fg)">Verify</b> = did it do the thing right (CI, tests, types green). <b style="color:var(--fg)">Validate</b> = did it do the <em style="font-style:normal;color:var(--fg)">right</em> thing — the change matches the ticket, at quality. Conflating "tests are green" with "it did what I asked" is how confidently-wrong code merges.</p>
+        <p><b style="color:var(--fg)">Verify</b> = did it do the thing right (CI, tests, types green). <b style="color:var(--fg)">Validate</b> = did it do the <em style="font-style:normal;color:var(--fg)">right</em> thing: the change matches the ticket, at quality. Conflating "tests are green" with "it did what I asked" is how confidently-wrong code merges.</p>
       </div>
       <div class="card">
         <h3>The Gate is a pure function</h3>
@@ -426,7 +426,7 @@
       </div>
       <div class="card">
         <h3>Asymmetric &amp; bounded</h3>
-        <p>Earned slowly, lost fast. Decays with staleness and drift. Irreversible actions — <code>code.migrate</code>, prod deploys — keep a human checkpoint at <em style="font-style:normal;color:var(--fg)">every</em> tier. Earned autonomy is bounded, never unbounded.</p>
+        <p>Earned slowly, lost fast. Decays with staleness and drift. Irreversible actions (<code>code.migrate</code>, prod deploys) keep a human checkpoint at <em style="font-style:normal;color:var(--fg)">every</em> tier. Earned autonomy is bounded, never unbounded.</p>
       </div>
       <div class="card" style="background:linear-gradient(180deg,rgba(110,231,168,.05),var(--panel));border-color:var(--line-2)">
         <h3 style="color:var(--accent)">Replay proves it</h3>
@@ -448,23 +448,23 @@
   <section class="blk" id="flows">
     <div class="kicker">One protocol, many flows</div>
     <h2 class="st">Recede doesn't know what code is.</h2>
-    <p class="sub">The spec defines actors, task types, evidence, and a gate — <em style="font-style:normal;color:var(--fg)">the flow decides</em> what Verify, Validate, and "irreversible" mean. The same eight operations:</p>
+    <p class="sub">The spec defines actors, task types, evidence, and a gate: <em style="font-style:normal;color:var(--fg)">the flow decides</em> what Verify, Validate, and "irreversible" mean. The same eight operations:</p>
     <div class="model">
       <div class="card">
-        <h3>SDLC — the entry</h3>
+        <h3>SDLC: the entry</h3>
         <p>Where the pain is sharpest today. <code>code.fix</code> / <code>code.migrate</code>; Verify = CI, tests, types; Validate = the change does what the ticket asked. Worked end to end in <a href="https://github.com/yuvalraz/recede/tree/main/examples/sdlc" target="_blank" rel="noopener" style="color:var(--fg);text-decoration:underline">examples/sdlc</a>.</p>
       </div>
       <div class="card">
-        <h3>Refunds &amp; commerce ops — the frontier</h3>
-        <p>Outcomes defer — a chargeback flips SUCCESS → REVERTED a day later and trust re-folds. Above a threshold, <code>never_recede</code>. Runnable in <a href="https://github.com/yuvalraz/recede/tree/main/examples/refund" target="_blank" rel="noopener" style="color:var(--fg);text-decoration:underline">examples/refund</a>.</p>
+        <h3>Refunds &amp; commerce ops: the frontier</h3>
+        <p>Outcomes defer: a chargeback flips SUCCESS → REVERTED a day later and trust re-folds. Above a threshold, <code>never_recede</code>. Runnable in <a href="https://github.com/yuvalraz/recede/tree/main/examples/refund" target="_blank" rel="noopener" style="color:var(--fg);text-decoration:underline">examples/refund</a>.</p>
       </div>
       <div class="card">
         <h3>Conversational &amp; support</h3>
-        <p><code>reply.draft</code> and <code>reply.send</code> are different task types with different risk. Verify = grounding, PII scrub; Validate = tone, policy, intent fit. Review recedes on routine intents — never on legal or medical paths.</p>
+        <p><code>reply.draft</code> and <code>reply.send</code> are different task types with different risk. Verify = grounding, PII scrub; Validate = tone, policy, intent fit. Review recedes on routine intents, never on legal or medical paths.</p>
       </div>
       <div class="card">
         <h3>Intake &amp; document pipelines</h3>
-        <p><code>doc.classify</code>, <code>doc.extract</code>; Verify = schema validity; Validate = sampled human ground truth. Trust recedes per document-type lane — a new vendor format snaps review back by itself.</p>
+        <p><code>doc.classify</code>, <code>doc.extract</code>; Verify = schema validity; Validate = sampled human ground truth. Trust recedes per document-type lane; a new vendor format snaps review back by itself.</p>
       </div>
     </div>
     <p class="sub" style="margin-top:26px;color:var(--fg)">Same protocol, same invariants, same receipts. <b>Only the checks and the policy change.</b></p>
@@ -474,17 +474,17 @@
   <section class="blk" id="different">
     <div class="kicker">Why it's different</div>
     <h2 class="st">It's not another scorecard. It's a layer above them.</h2>
-    <p class="sub">Recede sits above interop (MCP/A2A), eval/observability tools, and static guardrails — consuming their signals as evidence rather than replacing them.</p>
+    <p class="sub">Recede sits above interop (MCP/A2A), eval/observability tools, and static guardrails, consuming their signals as evidence rather than replacing them.</p>
     <div class="tablewrap">
       <table>
         <thead>
           <tr><th>Incumbent</th><th>What it does</th><th>Recede's distinct axis</th></tr>
         </thead>
         <tbody>
-          <tr><td>Eval / observability tools</td><td>Score each run in isolation</td><td>Trust has <u>memory</u> — carried forward per capability</td></tr>
+          <tr><td>Eval / observability tools</td><td>Score each run in isolation</td><td>Trust has <u>memory</u>, carried forward per capability</td></tr>
           <tr><td>Static guardrails / control standards</td><td>Apply the same checkpoints uniformly, forever</td><td>Review is <u>proportional</u> to earned evidence</td></tr>
           <tr><td>Governance promotion-ladders</td><td>Earned, but coarse HR-style tiers + calendar time + sign-off</td><td><u>Continuous &amp; machine-verifiable</u>, per-action</td></tr>
-          <tr><td>Agent identity / A2A</td><td>Establish <em style="font-style:normal">who</em> the agent is</td><td>Not who it is — <u>what it has earned</u></td></tr>
+          <tr><td>Agent identity / A2A</td><td>Establish <em style="font-style:normal">who</em> the agent is</td><td>Not who it is: <u>what it has earned</u></td></tr>
         </tbody>
       </table>
     </div>
@@ -494,7 +494,7 @@
   <section class="blk" id="quickstart">
     <div class="kicker">Quickstart</div>
     <h2 class="st">The whole framework is one call: wrap the function you already have.</h2>
-    <p class="sub">Reference implementation — TypeScript primary, Python mirror. The gate is <em style="font-style:normal;color:var(--fg)">implicit</em>: there is no <code style="font-family:var(--mono);color:var(--fg)">if (needsReview)</code> in your code. <code style="font-family:var(--mono);color:var(--fg)">run()</code> decides. Your existing CI, tests, and PR reviews <em style="font-style:normal;color:var(--fg)">become</em> the evidence.</p>
+    <p class="sub">Reference implementation: TypeScript primary, Python mirror. The gate is <em style="font-style:normal;color:var(--fg)">implicit</em>: there is no <code style="font-family:var(--mono);color:var(--fg)">if (needsReview)</code> in your code. <code style="font-family:var(--mono);color:var(--fg)">run()</code> decides. Your existing CI, tests, and PR reviews <em style="font-style:normal;color:var(--fg)">become</em> the evidence.</p>
     <div class="code">
       <div class="code-head">
         <span class="fname">code-agent.ts</span>
@@ -514,7 +514,7 @@
   checks:   [ciGreen, intentOK],
 });
 
-<span class="tok-c">// The gate is IMPLICIT — run() decides whether a human is asked.</span>
+<span class="tok-c">// The gate is IMPLICIT: run() decides whether a human is asked.</span>
 outcome.result;      <span class="tok-c">// the change (or the human-edited version)</span>
 outcome.trust;       <span class="tok-c">// { before, after, delta } for (code-agent, code.fix)</span>
 outcome.checkpoint;  <span class="tok-c">// undefined once review has receded for low-risk fixes</span>
@@ -522,20 +522,20 @@ outcome.warrant;     <span class="tok-c">// the hash-linked chain: intent -&gt; 
     </div>
     <p class="postcode">
       As the ledger accrues verified, validated changes, that same call site graduates from
-      <b>"always ask a human"</b> to <b>"merge autonomously"</b> — and reverts the moment
+      <b>"always ask a human"</b> to <b>"merge autonomously"</b>, and reverts the moment
       the agent regresses. You don't rewire anything. The trajectory does it.
     </p>
     <p class="postcode" style="margin-top:12px;color:var(--fg-faint);font-size:13.5px">
       Wrapping a refund flow, a support reply, or a document pipeline instead? Same call,
-      different checks — see <a href="#flows" style="color:var(--fg-dim);text-decoration:underline">One protocol, many flows</a>.
+      different checks: see <a href="#flows" style="color:var(--fg-dim);text-decoration:underline">One protocol, many flows</a>.
     </p>
   </section>
 
   <!-- STATUS / SCOPE -->
   <section class="blk" id="status">
     <div class="kicker">Status &amp; scope</div>
-    <h2 class="st">v0.1 DRAFT — the protocol is the deliverable; the code is proof.</h2>
-    <p class="sub">Breaking changes expected before 1.0. Designed clean-room from first principles and public prior art only — append-only logs, content addressing, risk matrices, calibration, human-in-the-loop gating, and verification-vs-validation from systems engineering.</p>
+    <h2 class="st">v0.1 DRAFT: the protocol is the deliverable; the code is proof.</h2>
+    <p class="sub">Breaking changes expected before 1.0. Designed clean-room from first principles and public prior art only: append-only logs, content addressing, risk matrices, calibration, human-in-the-loop gating, and verification-vs-validation from systems engineering.</p>
     <div class="status">
       <div class="box ships">
         <h3>v0.1 ships</h3>
@@ -555,7 +555,7 @@ outcome.warrant;     <span class="tok-c">// the hash-linked chain: intent -&gt; 
           <li>Cryptographic identity / PKI / DIDs (the <code style="color:var(--fg-dim)">sig</code> shape is reserved)</li>
           <li>ML / statistical scoring beyond the reference weighting</li>
           <li>Distributed ledgers &amp; consensus</li>
-          <li>A web dashboard — shipping one first would betray the anti-fatigue thesis</li>
+          <li>A web dashboard (shipping one first would betray the anti-fatigue thesis)</li>
           <li>Multi-agent delegation, framework plugins</li>
           <li>Compliance-framework mapping</li>
         </ul>
