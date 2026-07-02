@@ -6,6 +6,8 @@ All notable changes to Recede are documented here. Pre-1.0: breaking changes exp
 
 Initial public draft of the Recede protocol.
 
+- **Narrative repositioning** — Recede is a universal trust protocol for agentic work; the SDLC is the *entry manifestation*, not the identity. README + site now lead with the universal thesis and a "one protocol, many flows" gallery (SDLC · refunds · conversational · intake).
+
 - **SPEC.md** — records + canonical serialization (null-omitting), trust model, tiers, invariants I1–I7, the pure `gate()`/`update()`/`replay()`, threat model, and conformance (normative core vs the named `recede/ref-weighting-v0.1` profile).
 - **schemas/** — machine-readable JSON Schema for the record types (Intent, Action, Check, Outcome, Checkpoint).
 - **reference/ts** — TypeScript reference implementation (primary), `run()` front door over the eight-op protocol.
