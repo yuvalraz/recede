@@ -113,8 +113,12 @@ export function bandFor(score: number, sample?: SampleFinding | null): Band {
 // Source-ref extraction (mechanical, existence-filtered)
 // ---------------------------------------------------------------------------
 
-/** Path-like token with an extension and an optional #symbol fragment. */
-const REF_RE = /[\w./-]+\.\w+(#[\w$.]+)?/g;
+/**
+ * Path-like token with an extension and an optional #symbol fragment.
+ * Known non-goal: Windows-style backslash refs (src\parser.ts) never match —
+ * wiki pages cite POSIX-style repo-relative paths.
+ */
+const REF_RE = /[\w./-]+\.\w+(#[\w$.-]+)?/g;
 
 /**
  * Extract repo-relative source refs from a wiki page's markdown: path-like
@@ -128,8 +132,10 @@ export function extractSources(markdown: string, repoRoot: string): string[] {
   for (const m of markdown.matchAll(REF_RE)) {
     const token = m[0];
     if (!token.includes("/")) continue; // bare words like foo.bar
-    if (token.startsWith("/") || token.includes("://")) continue; // absolute / URL
-    if (m.index >= 3 && markdown.slice(m.index - 3, m.index) === "://") continue; // URL tail
+    // Absolute paths — and URLs: ':' is outside REF_RE's class, so a URL's
+    // match starts at its "//" and this reject swallows the tail too.
+    if (token.startsWith("/")) continue;
+    if (token.split("/").includes("..")) continue; // '..' segment: tree escape, never repo-relative
     const filePart = token.split("#", 1)[0];
     if (!existsSync(join(repoRoot, filePart))) continue;
     if (seen.has(token)) continue;
@@ -204,6 +210,11 @@ export function emptySidecar(generator: string): Sidecar {
  * this single function — that is the whole byte-identical-replay guarantee.
  * All timestamps come from the warrant (`ts` = intent.ts) or from inside the
  * event (`nowMs` for decay elapsed time); wall clock is never consulted.
+ *
+ * PRODUCER CONTRACT: the fold is outcome-insensitive for run events BY
+ * DESIGN — appending an event asserts its effects really happened. Never seal
+ * a run warrant describing pages a failed run did not write; the Phase-3 CLI
+ * enforces this (child non-zero => seal nothing, mutate nothing).
  */
 export function foldEvent(prev: Sidecar, event: WikiEvent, warrantId: string, ts: string): Sidecar {
   const next: Sidecar = { generator: prev.generator, gitHead: prev.gitHead, pages: {}, updated: ts };
@@ -238,7 +249,14 @@ export function foldEvent(prev: Sidecar, event: WikiEvent, warrantId: string, ts
         // cannot prove the change is unrelated to it.
         const sourceless = p.sources.length === 0 && event.changedFiles.length > 0;
         if (sourceMatch || sourceless) p.score = diffDecay(p.score);
-        p.score = timeDecay(p.score, event.nowMs - p.lastEventMs);
+        // Guard the time base: a non-finite elapsed (NaN nowMs, missing key)
+        // must fail loudly, and a negative elapsed (clock skew) clamps to 0 —
+        // decay may never RAISE a score (0.5^negative > 1).
+        const elapsed = event.nowMs - p.lastEventMs;
+        if (!Number.isFinite(elapsed)) {
+          throw new Error(`non-finite decay elapsed in warrant ${warrantId}`);
+        }
+        p.score = timeDecay(p.score, Math.max(0, elapsed));
         p.lastEventMs = event.nowMs;
         p.lastWarrant = warrantId;
         p.band = bandFor(p.score, p.lastSample);
@@ -300,7 +318,16 @@ export function eventOf(w: Warrant): WikiEvent | undefined {
  */
 export function foldWarrants(generator: string, warrants: Warrant[]): Sidecar {
   let sidecar = emptySidecar(generator);
+  const seen = new Set<string>();
   for (const w of warrants) {
+    // A dangling outcome-less intent (crash between the intent append and the
+    // outcome append) was never folded incrementally — replay must skip it
+    // too, or the two fold paths diverge. FAILURE-sealed warrants DO fold:
+    // a failed sample's findings are real evidence.
+    if (!w.outcome) continue;
+    // Duplicated ledger lines (same intent id) must not double-fold.
+    if (seen.has(w.intent.id)) continue;
+    seen.add(w.intent.id);
     const event = eventOf(w);
     if (!event) continue;
     sidecar = foldEvent(sidecar, event, w.intent.id, w.intent.ts);
@@ -391,6 +418,16 @@ export function sealChecks(human: string): CheckSpec[] {
  * default autoApprove() would FABRICATE a human APPROVE on every mechanical
  * event at T0. The gate still manifests where it belongs — in the fence
  * language, `status` posture, and the CI template (consumers of trust).
+ *
+ * PRODUCER CONTRACT: appending an event asserts the effects really happened —
+ * the fold is outcome-insensitive for run events by design. Never seal a run
+ * warrant describing pages a failed run did not write (the Phase-3 CLI
+ * enforces this: child non-zero => seal nothing).
+ *
+ * CALLER CONVENTION: every event MUST carry a fresh, unique `runId` —
+ * warrant ids are content-addressed, so two events with identical payloads
+ * dedup into ONE warrant id by design; `runId` is what keeps structurally
+ * identical events distinct in the ledger.
  */
 export async function sealEventWarrant(opts: {
   ledger: Ledger;
@@ -403,6 +440,13 @@ export async function sealEventWarrant(opts: {
   humanTouched?: boolean;
   now?: () => string;
 }): Promise<{ warrant: Warrant; before: TrustState; after: TrustState }> {
+  // Reject invalid events BEFORE they are stringified into the ledger: a
+  // non-finite nowMs (NaN/±Infinity/missing) serializes as null via
+  // JSON.stringify — nothing throws until fold time, and the corrupt warrant
+  // would be sealed (and replayed) forever.
+  if (opts.event.kind === "decay" && !Number.isFinite(opts.event.nowMs)) {
+    throw new Error(`decay event ${opts.event.runId}: nowMs must be finite, got ${opts.event.nowMs}`);
+  }
   const now = opts.now ?? (() => new Date().toISOString());
   const before =
     opts.ledger.getTrust(opts.generator, DOC_MAP_TASK) ?? coldStart(opts.generator, DOC_MAP_TASK);

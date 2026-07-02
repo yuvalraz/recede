@@ -98,6 +98,18 @@ test("extractSources dedupes preserving order, rejects absolute paths and URLs",
   assert.deepEqual(extractSources(md, tmpRoot), ["src/parser.ts"]);
 });
 
+test("extractSources keeps hyphenated #fragments intact", () => {
+  assert.deepEqual(extractSources("grep src/parser.ts#my-symbol", tmpRoot), ["src/parser.ts#my-symbol"]);
+});
+
+test("extractSources rejects '..' segments (tree escape; phantom refs silently under-decay)", () => {
+  const inner = join(tmpRoot, "inner");
+  mkdirSync(inner, { recursive: true });
+  // Both resolve to tmpRoot/src/parser.ts — real files OUTSIDE the repo root.
+  const md = "escape ../src/parser.ts and nested src/../../src/parser.ts";
+  assert.deepEqual(extractSources(md, inner), []);
+});
+
 // ---------------------------------------------------------------------------
 // Task 1.3: event fold + sidecar
 // ---------------------------------------------------------------------------
@@ -347,7 +359,11 @@ test("PROPERTY: foldWarrants over the ledger == incremental foldEvent chain (dee
     const { warrant } = await sealEventWarrant({ ledger, policy: docPolicy(), generator: gen,
       event: ev, intent: `wiki ${ev.kind}`, checks: checksFor(ev), groundTruth: "test",
       humanTouched: ev.kind === "seal", now });
-    incremental = foldEvent(incremental, ev, warrant.intent.id, warrant.intent.ts);
+    // Round-trip through EVENT_PREFIX + JSON.stringify / eventOf before
+    // folding: serialization artifacts (e.g. NaN -> null) must surface here.
+    const recovered = eventOf(warrant);
+    assert.ok(recovered, "event must round-trip through expected_effects[0]");
+    incremental = foldEvent(incremental, recovered, warrant.intent.id, warrant.intent.ts);
   }
   const replayed = foldWarrants(gen, ledger.warrantsFor(gen, DOC_MAP_TASK));
   assert.deepEqual(replayed, incremental);
@@ -382,6 +398,81 @@ test("PROPERTY: scores stay within [EPSILON, 1] across arbitrary event sequences
       assert.ok(p.score >= C.EPSILON && p.score <= 1, `score ${p.score} out of [EPSILON, 1] at event ${i}`);
     }
   }
+});
+
+test("foldWarrants skips dangling outcome-less intents but still folds FAILURE-sealed warrants", async () => {
+  const ledger = new MemoryLedger();
+  const gen = "openwiki@test";
+  const { warrant: runW } = await sealEventWarrant({ ledger, policy: docPolicy(), generator: gen,
+    event: runEvent(), intent: "wiki run", checks: cleanRunChecks(), groundTruth: "t" });
+  // A seal whose process crashed between the intent append and the outcome
+  // append: the intent line exists, the event never happened incrementally.
+  const danglingSeal: WikiEvent = { kind: "seal", runId: "r9", pages: ["openwiki/a.md"], human: "yuval" };
+  const danglingIntent = open({ actor: gen, task_type: DOC_MAP_TASK, proposed_action: "wiki seal",
+    declared_risk: DOC_MAP_RISK, expected_effects: [EVENT_PREFIX + JSON.stringify(danglingSeal)], ts: T1 });
+  const dangling: Warrant = { intent: danglingIntent, checks: [], checkpoints: [] };
+  const replayed = foldWarrants(gen, [runW, dangling]);
+  assert.equal(replayed.pages["openwiki/a.md"].score, C.EPSILON); // 0.25: the dangling seal never happened
+  // FAILURE-sealed warrants DO fold — a failed sample's findings are real evidence.
+  const results: SampleResult[] = [
+    { page: "openwiki/a.md", refsChecked: 1, refsBroken: 1, anyMissing: true, evidence: ["missing: src/parser.ts"] },
+  ];
+  const { warrant: failW } = await sealEventWarrant({ ledger, policy: docPolicy(), generator: gen,
+    event: { kind: "sample", runId: "r10", results }, intent: "wiki sample",
+    checks: sampleChecks(results), groundTruth: "t" });
+  assert.equal(failW.outcome?.result, "FAILURE");
+  const withFail = foldWarrants(gen, [runW, failW]);
+  assert.equal(withFail.pages["openwiki/a.md"].band, "action");
+});
+
+test("foldWarrants dedups duplicated ledger lines by intent id (no double-fold)", async () => {
+  const ledger = new MemoryLedger();
+  const gen = "openwiki@test";
+  const { warrant: runW } = await sealEventWarrant({ ledger, policy: docPolicy(), generator: gen,
+    event: runEvent(), intent: "wiki run", checks: cleanRunChecks(), groundTruth: "t" });
+  const { warrant: sealW } = await sealEventWarrant({ ledger, policy: docPolicy(), generator: gen,
+    event: { kind: "seal", runId: "r2", pages: ["openwiki/a.md"], human: "yuval" }, intent: "wiki seal",
+    checks: sealChecks("yuval"), groundTruth: "human-seal", humanTouched: true });
+  const replayed = foldWarrants(gen, [runW, sealW, sealW]); // duplicated line
+  assert.equal(replayed.pages["openwiki/a.md"].score, sealRaise(C.EPSILON)); // 0.55 once, not 0.73 twice
+});
+
+test("sealEventWarrant rejects a decay event with non-finite nowMs before it reaches the ledger", async () => {
+  const ledger = new MemoryLedger();
+  const mk = (nowMs: number): WikiEvent => ({
+    kind: "decay", runId: "r1", fromHead: "a", toHead: "b", changedFiles: [], nowMs,
+  });
+  for (const bad of [Number.NaN, Infinity, -Infinity, undefined as unknown as number]) {
+    await assert.rejects(
+      sealEventWarrant({ ledger, policy: docPolicy(), generator: "openwiki@test",
+        event: mk(bad), intent: "wiki decay",
+        checks: decayChecks({ changedFiles: 0, affectedPages: 0 }), groundTruth: "git-diff" }),
+      /nowMs must be finite/,
+    );
+  }
+  // The guard fires BEFORE the intent append: nothing corrupt ever hits the ledger.
+  assert.equal(ledger.warrantsFor("openwiki@test", DOC_MAP_TASK).length, 0);
+});
+
+test("foldEvent throws on non-finite decay elapsed, naming the warrant", () => {
+  const s1 = foldEvent(emptySidecar("openwiki@test"), runEvent(), "w1", T0);
+  const nan: WikiEvent = { kind: "decay", runId: "rX", fromHead: "aaa", toHead: "bbb",
+    changedFiles: [], nowMs: Number.NaN };
+  assert.throws(() => foldEvent(s1, nan, "wBad", T1), /non-finite decay elapsed in warrant wBad/);
+  // Missing key — the shape a hand-edited or pre-guard corrupt ledger could carry.
+  const missing = JSON.parse(JSON.stringify(
+    { kind: "decay", runId: "rY", fromHead: "aaa", toHead: "bbb", changedFiles: [] },
+  )) as WikiEvent;
+  assert.throws(() => foldEvent(s1, missing, "wBad2", T1), /non-finite decay elapsed/);
+});
+
+test("negative decay dt (clock skew) never raises a score", () => {
+  const s1 = foldEvent(emptySidecar("openwiki@test"), runEvent(), "w1", T0);
+  const sealed = foldEvent(s1, { kind: "seal", runId: "r2", pages: ["openwiki/a.md"], human: "yuval" }, "w2", T1);
+  const skew: WikiEvent = { kind: "decay", runId: "r3", fromHead: "aaa", toHead: "bbb",
+    changedFiles: [], nowMs: Date.parse(T1) - C.TIME_HALF_LIFE_MS }; // clock went backwards
+  const s2 = foldEvent(sealed, skew, "w3", T2);
+  assert.equal(s2.pages["openwiki/a.md"].score, sealRaise(C.EPSILON)); // 0.55 stays 0.55 — no unearned rise
 });
 
 test("eventOf throws naming the warrant id on a malformed payload", () => {
