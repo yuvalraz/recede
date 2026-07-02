@@ -33,6 +33,7 @@ import {
   type CheckSpec,
   type CheckpointHandler,
   type Ledger,
+  type OutcomeResult,
   type Policy,
 } from "../../reference/ts/src/index.ts";
 
@@ -41,7 +42,34 @@ import {
 // ---------------------------------------------------------------------------
 
 /** The coding task types the default policy scopes trust by. */
-export type CodingTaskType = "code.fix" | "code.feature" | "code.migrate";
+export type CodingTaskType =
+  | "code.fix"
+  | "code.feature"
+  | "code.migrate"
+  | "release.publish"
+  | "docs.write";
+
+/**
+ * Conservative default RiskClass per coding task type, used when a caller does
+ * not declare a risk explicitly. `release.publish` and `code.migrate` map onto
+ * `irreversible.critical`, which the policy pins into `never_recede` (I3):
+ * those lanes keep a human checkpoint at every trust tier. A caller MAY
+ * override per unit of work (e.g. a reversible migration *prep* step can
+ * declare "reversible.low"); the never-recede floor still binds whatever risk
+ * is actually declared.
+ */
+export const DEFAULT_TASK_RISK: Record<CodingTaskType, string> = {
+  "code.fix": "reversible.low",
+  "code.feature": "reversible.low",
+  "code.migrate": "irreversible.critical",
+  "release.publish": "irreversible.critical",
+  "docs.write": "reversible.low",
+};
+
+/** Default risk for a task type; undefined for unknown types (caller decides). */
+export function defaultRiskFor(taskType: string): string | undefined {
+  return (DEFAULT_TASK_RISK as Record<string, string | undefined>)[taskType];
+}
 
 /**
  * A single CC10X phase outcome, as the spine already reports it. Did-it-right
@@ -70,6 +98,11 @@ export interface Cc10xBuildInput {
   risk: string;
   /** The ordered phase signals CC10X produced for this unit. */
   phases: Cc10xPhaseSignal[];
+  /**
+   * When set, the outcome seals UNRESOLVED with this deferral window and is
+   * re-sealed later via `reseal()` once ground truth arrives (SPEC section 6).
+   */
+  deferUntil?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,17 +181,27 @@ export class Cc10xRecede {
       checks: phasesToChecks(build.phases),
       operations: build.phases.map((p) => `${p.phase}:${p.pass ? "PASS" : "FAIL"}`),
       groundTruth: "cc10x-phases",
+      deferUntil: build.deferUntil,
     });
+  }
+
+  /**
+   * Re-seal a previously recorded build when ground truth arrives: a deferred
+   * (UNRESOLVED) outcome lands, or a shipped diff is later confirmed/overturned.
+   * Appends a superseding Outcome and re-folds via pure replay — so the trust
+   * move is fully reconstructable (I2). Uses the sealed intent id from a prior
+   * recordBuild's warrant.
+   */
+  reseal(intentId: string, result: Exclude<OutcomeResult, "UNRESOLVED">, groundTruthSource: string) {
+    return this.r.reseal(intentId, result, groundTruthSource);
   }
 
   /**
    * A CC10X REVERT is negative evidence, often late-arriving. Feed it back so
    * trust drops fast and the human gate snaps back on the NEXT build of this
-   * scope. Reseal appends a REVERTED outcome that supersedes the original and
-   * re-folds via pure replay — so the trust drop is fully reconstructable (I2).
-   * Uses the sealed intent id from a prior recordBuild's warrant.
+   * scope.
    */
   revert(intentId: string) {
-    return this.r.reseal(intentId, "REVERTED", "cc10x-revert");
+    return this.reseal(intentId, "REVERTED", "cc10x-revert");
   }
 }

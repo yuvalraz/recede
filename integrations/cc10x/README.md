@@ -76,8 +76,9 @@ accrued trust. Earned autonomy is bounded, never unbounded.
 
 | File | Responsibility |
 |---|---|
-| `cc10x-adapter.ts` | The mapping module: phase signals → Recede checks, `codingPolicy()`, and the `Cc10xRecede` front door (`recordBuild` / `revert`). |
+| `cc10x-adapter.ts` | The mapping module: phase signals → Recede checks, `codingPolicy()`, the task-type → default-risk table, and the `Cc10xRecede` front door (`recordBuild` / `reseal` / `revert`). |
 | `demo.ts` | A runnable trajectory: 30 clean `code.fix` builds (gated → receding), a REVERT snapping the gate back, and a `code.migrate` never-recede lane. |
+| `cli.ts` | A thin CLI over the adapter for recording **real** sessions into a persistent `FileLedger` (JSONL) and reading trust back — see [Recording real sessions](#recording-real-sessions). |
 
 ## Run it
 
@@ -135,6 +136,62 @@ out.warrant;      // the hash-linked evidence chain (the receipt)
 // Late negative evidence: a merged fix was rolled back.
 bridge.revert(out.warrant.intent.id);   // trust drops fast; the gate snaps back
 ```
+
+## Recording real sessions
+
+`cli.ts` turns the adapter into a dogfooding tool: after every completed
+build/verify cycle, seal one Warrant into a persistent, cross-session ledger
+(a `FileLedger` JSONL at any path you choose), and read trust state back before
+starting work. Zero install, same Node ≥ 22.6 type-stripping as the demo.
+
+**`record` — seal one Warrant per completed cycle.** Phase flags carry the
+verdicts your workflow spine already produced (`--verifier` is required;
+`skip` = the phase didn't run). Risk defaults from the task type
+(`code.fix`/`code.feature`/`docs.write` → `reversible.low`;
+`code.migrate`/`release.publish` → `irreversible.critical`, which is in
+`never_recede`). `--human none` means the cycle ran without human review — and
+is **refused (exit 2) whenever the gate posture demands a checkpoint**, so the
+ledger can't accumulate out-of-policy autonomy. Prints the sealed warrant id,
+trust before → after, and the lane's gate posture going forward.
+
+```bash
+node cli.ts record --ledger ./trust.jsonl \
+  --actor my-agent@my-harness --task code.fix \
+  --intent "fix null-guard in parser" \
+  --verifier pass --hunter pass --tests pass --validate pass \
+  --human approve                        # later, once receded: --human none
+
+# a cycle whose ground truth arrives later: seal UNRESOLVED with a window
+node cli.ts record --ledger ./trust.jsonl --actor my-agent@my-harness \
+  --task code.feature --intent "add retry to sync job" \
+  --verifier pass --tests pass --human approve --defer 2026-07-09T00:00:00Z
+```
+
+**`reseal` — flip an outcome when ground truth lands.** A deferred outcome
+resolves, or a shipped diff is reverted post-merge. Accepts the full intent id
+or any unique prefix; prints the trust snap-back.
+
+```bash
+node cli.ts reseal --ledger ./trust.jsonl --warrant sha256:7c2682aa \
+  --outcome reverted --source "post-merge regression, rolled back"
+# => trust before tier=T2 ... after tier=T0 ...; next build gates again
+```
+
+**`status` — read-only trust table.** Every `(actor, task-type)` lane with
+tier/score/confidence/sample-count, the gate posture per risk class, and an
+**I2 replay-integrity check** (`replay()` over the stored Warrants must equal
+the stored trust snapshot — PASS/FAIL per lane, non-zero exit on any FAIL).
+
+```bash
+node cli.ts status --ledger ./trust.jsonl [--actor <id>] [--task <type>]
+# ACTOR              TASK      TIER  SCORE  CONF   N   UPDATED     I2
+# my-agent@...       code.fix  T2    0.746  0.801  11  2026-07-02  PASS
+#   gate: read.only=autonomous  reversible.low=autonomous  ...
+# I2 replay integrity: PASS — replay() == stored trust for 3/3 lanes
+```
+
+The ledger path is always yours to supply — the CLI never assumes or writes any
+other location. Treat the ledger as private evidence; don't commit it.
 
 ## Clean-room
 
