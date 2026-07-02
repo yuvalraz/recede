@@ -121,3 +121,141 @@ export function extractSources(markdown: string, repoRoot: string): string[] {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Event model + sidecar
+// ---------------------------------------------------------------------------
+
+export interface SampleResult {
+  page: string;
+  refsChecked: number;
+  refsBroken: number;
+  anyMissing: boolean;
+  evidence: string[];
+}
+
+export interface PageState {
+  path: string;
+  sources: string[];
+  gitHead: string;
+  contentDigest: string;
+  score: number;
+  band: Band;
+  lastWarrant: string;
+  sealedBy: string | null;
+  lastSample: SampleFinding | null;
+  lastEventMs: number;
+}
+
+export interface Sidecar {
+  generator: string;
+  gitHead: string;
+  pages: Record<string, PageState>;
+  updated: string;
+}
+
+/**
+ * The per-event payload that rides VERBATIM in `IntentRecord.expected_effects[0]`
+ * (prefixed with EVENT_PREFIX) — the only replay-recoverable carrier, since
+ * `inputs`/`result` persist as digests. `runId` (a UUID per event) sits inside
+ * the intent's content-hash preimage, guaranteeing unique warrant ids even for
+ * structurally identical events. Decay carries its own `nowMs` so elapsed-time
+ * math replays deterministically — folds never read the wall clock.
+ */
+export type WikiEvent =
+  | {
+      kind: "run";
+      runId: string;
+      gitHead: string;
+      gitHeadSource: "last-update" | "degraded-head";
+      planSnapshot: string | null;
+      pages: { path: string; sources: string[]; contentDigest: string }[];
+      removed: string[];
+    }
+  | { kind: "decay"; runId: string; fromHead: string; toHead: string; changedFiles: string[]; nowMs: number }
+  | { kind: "seal"; runId: string; pages: string[]; human: string }
+  | { kind: "sample"; runId: string; results: SampleResult[] };
+
+/** A deterministic zero state — the fold origin for both CLI and replay. */
+export function emptySidecar(generator: string): Sidecar {
+  return { generator, gitHead: "", pages: {}, updated: "" };
+}
+
+/**
+ * Fold ONE event into the sidecar. Pure: returns a new object, never mutates
+ * `prev`. Both the incremental CLI folds and `foldWarrants` replay go through
+ * this single function — that is the whole byte-identical-replay guarantee.
+ * All timestamps come from the warrant (`ts` = intent.ts) or from inside the
+ * event (`nowMs` for decay elapsed time); wall clock is never consulted.
+ */
+export function foldEvent(prev: Sidecar, event: WikiEvent, warrantId: string, ts: string): Sidecar {
+  const next: Sidecar = { generator: prev.generator, gitHead: prev.gitHead, pages: {}, updated: ts };
+  for (const [path, p] of Object.entries(prev.pages)) next.pages[path] = { ...p };
+  const tsMs = Date.parse(ts);
+
+  switch (event.kind) {
+    case "run": {
+      for (const removed of event.removed) delete next.pages[removed];
+      for (const pg of event.pages) {
+        next.pages[pg.path] = {
+          path: pg.path,
+          sources: [...pg.sources],
+          gitHead: event.gitHead,
+          contentDigest: pg.contentDigest,
+          score: TRUST_CONSTANTS.EPSILON,
+          band: bandFor(TRUST_CONSTANTS.EPSILON),
+          lastWarrant: warrantId,
+          sealedBy: null,
+          lastSample: null,
+          lastEventMs: tsMs,
+        };
+      }
+      next.gitHead = event.gitHead;
+      break;
+    }
+    case "decay": {
+      const changed = new Set(event.changedFiles);
+      for (const p of Object.values(next.pages)) {
+        const sourceMatch = p.sources.some((s) => changed.has(s.split("#", 1)[0]));
+        // Conservative rule: a page citing nothing decays on ANY diff — we
+        // cannot prove the change is unrelated to it.
+        const sourceless = p.sources.length === 0 && event.changedFiles.length > 0;
+        if (sourceMatch || sourceless) p.score = diffDecay(p.score);
+        p.score = timeDecay(p.score, event.nowMs - p.lastEventMs);
+        p.lastEventMs = event.nowMs;
+        p.lastWarrant = warrantId;
+        p.band = bandFor(p.score, p.lastSample);
+      }
+      next.gitHead = event.toHead;
+      break;
+    }
+    case "seal": {
+      for (const path of event.pages) {
+        const p = next.pages[path];
+        if (!p) continue; // CLI refuses unknown pages pre-seal; the fold stays total for replay
+        p.score = sealRaise(p.score);
+        p.sealedBy = event.human;
+        p.lastSample = null;
+        p.band = bandFor(p.score);
+        p.lastWarrant = warrantId;
+        p.lastEventMs = tsMs;
+      }
+      break;
+    }
+    case "sample": {
+      for (const r of event.results) {
+        const p = next.pages[r.page];
+        if (!p) continue;
+        p.lastSample = {
+          brokenRatio: r.refsChecked ? r.refsBroken / r.refsChecked : 0,
+          anyMissing: r.anyMissing,
+        };
+        p.band = bandFor(p.score, p.lastSample);
+        p.lastWarrant = warrantId;
+        p.lastEventMs = tsMs;
+      }
+      break;
+    }
+  }
+  return next;
+}
