@@ -191,7 +191,28 @@ Two things this buys:
 
 ---
 
-## 5. Heterogeneous fleet — measure, don't teleport
+## 5. Nekuda / agentic commerce
+
+*Reference example: [`examples/agentic-checkout/`](./examples/agentic-checkout/)
+· runnable demo: `node examples/agentic-checkout/checkout.ts`.*
+
+A [Nekuda](https://github.com/nekuda-ai) mandate is *ex-ante*: a signed, scoped
+permission answering "did the user actually mean it?" before an agent spends.
+Recede is *ex-post*: the evidence chain answering "should this agent keep
+buying unattended?" — a trust question, not a signature question. The two
+compose: the mandate becomes the Warrant's **Intent** record, mandate checks
+(cap, allowlist) become **Verify**, and post-purchase judgment (kept vs.
+disputed) becomes **Validate**.
+
+The example shows a shopping agent earning autonomy on `commerce.reorder`, a
+friendly-fraud chargeback resealing SUCCESS → REVERTED and snapping the
+checkpoint back, and a high-value off-allowlist purchase that never recedes.
+It runs against a **simulated** gateway — a demo of the pairing, not a shipped
+Nekuda SDK integration. See [Nekuda's writing](https://nekuda.substack.com/).
+
+---
+
+## 6. Heterogeneous fleet — measure, don't teleport
 
 Trust in Recede is per-Actor, and the **Actor is the specific harness/runner**.
 A local multi-agent harness (say, Claude Code on your machine) and an expensive
@@ -238,4 +259,6 @@ runs."
    agent in the repo inherits the same earned-trust gating.
 3. **Read the examples.** `node integrations/cc10x/demo.ts` shows a human review
    receding and snapping back on a REVERT (§3). `node integrations/okf/demo.ts`
-   exports a ledger to an auditable OKF bundle (§4).
+   exports a ledger to an auditable OKF bundle (§4). `node
+   examples/agentic-checkout/checkout.ts` shows the same pattern on a
+   mandate-carrying shopping agent (§5).

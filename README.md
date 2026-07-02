@@ -38,7 +38,7 @@ Recede doesn't know what code is. The spec defines actors, task types, evidence,
 
 **SDLC — the entry manifestation.** Where the industry's pain is sharpest today. Task types like `code.fix` / `code.feature` / `code.migrate`; Verify = CI, tests, types; Validate = the change does what the ticket asked, at quality. Review recedes on low-risk fixes; a schema migration or prod deploy never recedes. Worked end to end in [`examples/sdlc`](./examples/sdlc) and the [CC10X adapter](./integrations/cc10x).
 
-**Refunds & commerce ops — the frontier.** `refund.issue`, `refund.escalate`; Verify = amounts, limits, ledger invariants; Validate = policy fit and abuse signals. Outcomes defer — a chargeback flips SUCCESS → REVERTED a day later and trust re-folds. Above a threshold, `never_recede`. Runnable in [`examples/refund`](./examples/refund).
+**Refunds & commerce ops — the frontier.** `refund.issue`, `refund.escalate`; Verify = amounts, limits, ledger invariants; Validate = policy fit and abuse signals. Outcomes defer — a chargeback flips SUCCESS → REVERTED a day later and trust re-folds. Above a threshold, `never_recede`. Runnable in [`examples/refund`](./examples/refund). A mandate-carrying shopping agent (Nekuda-style ex-ante permission) rides the same protocol in [`examples/agentic-checkout`](./examples/agentic-checkout).
 
 **Conversational & support flows.** `reply.draft` and `reply.send` are *different task types with different risk*; Verify = grounding, citations, PII scrub; Validate = tone, policy, intent fit. Review recedes on routine intents — never on legal, medical, or escalation paths.
 
@@ -89,7 +89,7 @@ Wrap the function you already have. As the ledger accrues verified, validated ch
 
 ## Status & scope
 
-**v0.1 ships:** the normative record schemas, the trust-state model + tiers + invariants I1–I7, the pure `gate()` + declarative Policy matrix, the pure `update()`/`replay()` reducers, first-class Verify/Validate checks, a reference weighting function (asymmetric + decay + near-miss ratchet), a reference implementation (TypeScript primary, Python mirror) with a cross-language conformance vector, one CLI checkpoint surface, and runnable examples: [`examples/sdlc`](./examples/sdlc) (the everyday case) and [`examples/refund`](./examples/refund) (the higher-stakes frontier). Integrations: [`INTEGRATIONS.md`](./INTEGRATIONS.md) (CC10X force-multiplier, OKF export). See [`SPEC.md`](./SPEC.md).
+**v0.1 ships:** the normative record schemas, the trust-state model + tiers + invariants I1–I7, the pure `gate()` + declarative Policy matrix, the pure `update()`/`replay()` reducers, first-class Verify/Validate checks, a reference weighting function (asymmetric + decay + near-miss ratchet), a reference implementation (TypeScript primary, Python mirror) with a cross-language conformance vector, one CLI checkpoint surface, and runnable examples: [`examples/sdlc`](./examples/sdlc) (the everyday case), [`examples/refund`](./examples/refund) (the higher-stakes frontier), and [`examples/agentic-checkout`](./examples/agentic-checkout) (a mandate-carrying shopping agent). Integrations: [`INTEGRATIONS.md`](./INTEGRATIONS.md) (CC10X force-multiplier, OKF export). See [`SPEC.md`](./SPEC.md).
 
 **Explicitly deferred:** cryptographic identity/PKI, ML scoring, distributed ledgers, a web dashboard (shipping one first would betray the anti-fatigue thesis), multi-agent delegation, framework plugins, and compliance mapping. Interfaces are left where a platform would later grow.
 

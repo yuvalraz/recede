@@ -15,5 +15,6 @@ Initial public draft of the Recede protocol.
 - **conformance/** — a shared `vectors.json` both implementations replay to a byte-identical TrustState (cross-language conformance).
 - **examples/sdlc** — the everyday case: a coding agent earning autonomy on `code.fix` as verified changes compound, with `code.migrate` never receding.
 - **examples/refund** — the higher-stakes frontier: the same protocol on money-movement, incl. a deferred `REVERTED` outcome.
-- **INTEGRATIONS.md** + **integrations/cc10x** (force-multiplier reference adapter) + **integrations/okf** (Recede ledger → Open Knowledge Format bundle).
+- **examples/agentic-checkout** — a Nekuda-style mandate-carrying shopping agent: trust compounds on reorders, a friendly-fraud chargeback reseals SUCCESS → REVERTED and the checkpoint snaps back, and a high-value/new-merchant purchase never recedes.
+- **INTEGRATIONS.md** + **integrations/cc10x** (force-multiplier reference adapter) + **integrations/okf** (Recede ledger → Open Knowledge Format bundle) + Nekuda / agentic commerce pairing.
 - **site/** — a self-contained landing page.

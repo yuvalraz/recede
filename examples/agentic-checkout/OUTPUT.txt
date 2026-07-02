@@ -1,0 +1,68 @@
+
+──────────────────────────────────────────────────────────────────────────
+  RECEDE — the agentic checkout story
+  actor=shopping-agent  mandate=mandate-9f2a cap=$60  policy=recede.reference@0.1.0
+──────────────────────────────────────────────────────────────────────────
+  The mandate is the Warrant's Intent — a user-signed, scoped spending
+  permission (Nekuda-style). It answers 'did you actually mean it?' before
+  the purchase. Recede answers what comes after: should this agent keep
+  buying unattended? That answer comes from evidence, not a config flag.
+
+──────────────────────────────────────────────────────────────────────────
+  1. BASELINE — cold start (T0): every checkout stops for a human
+──────────────────────────────────────────────────────────────────────────
+  checkout #1                T0   score=0.115 (+0.115 ) n=1   → CHECKPOINT ↯ human paged (full, APPROVE)
+     gate reason: tier T0 requires checkpoint for risk 'financial.reversible'
+     Card-not-present, human-not-present — the mandate alone doesn't buy
+     autonomy. Every purchase on this lane stops for the cardholder.
+
+──────────────────────────────────────────────────────────────────────────
+  2. EARNING TRUST — clean, in-mandate reorders compound trust
+──────────────────────────────────────────────────────────────────────────
+  reorder #1                 T0   score=0.115 (+0.115 ) n=1   → CHECKPOINT ↯ human paged (full, APPROVE)
+  reorder #5                 T1   score=0.459 (+0.071 ) n=5   → CHECKPOINT ↯ human paged (full, APPROVE)
+  reorder #20                T2   score=0.914 (+0.011 ) n=20  → CHECKPOINT ↯ human paged (brief, APPROVE)
+  reorder #26                T3   score=0.959 (+0.005 ) n=26  → autonomous · no human paged
+  reorder #30                T3   score=0.975 (+0.003 ) n=30  → autonomous · no human paged
+
+     Oversight receded at reorder #26: the same mandate, the same call
+     site — only the evidence on commerce.reorder changed.
+
+──────────────────────────────────────────────────────────────────────────
+  3. OVERSIGHT RECEDES — a reorder executes autonomously, Warrant still recorded
+──────────────────────────────────────────────────────────────────────────
+  reorder (auto)             T3   score=0.978 (+0.003 ) n=31  → autonomous · no human paged
+     No human saw this reorder. The Warrant above is still on the ledger —
+     receded oversight is not unaudited oversight.
+
+──────────────────────────────────────────────────────────────────────────
+  4. FRIENDLY FRAUD — a chargeback reseals a settled purchase, trust re-folds
+──────────────────────────────────────────────────────────────────────────
+  reorder (disputed)         T3   score=0.980 (+0.003 ) n=32  → autonomous · no human paged
+
+     …days later: the cardholder disputes the charge. Reseal:
+     reseal SUCCESS → REVERTED: T3  → T1  score 0.980 → 0.368   (demotion)
+  reorder (post-chargeback)  T1   score=0.441 (+0.073 ) n=33  → CHECKPOINT ↯ human paged (full, APPROVE)
+
+     Trust fell from T3 territory to T1 — below the floor
+     'financial.reversible' needs to run unattended. The checkpoint
+     re-armed automatically. No rule was edited; one bad chargeback bought
+     back human review.
+
+──────────────────────────────────────────────────────────────────────────
+  5. STEP-UP — a high-value, new-merchant purchase always checkpoints
+──────────────────────────────────────────────────────────────────────────
+  new-merchant #1            was T0   → CHECKPOINT ↯ human paged (full, APPROVE)
+  new-merchant #2            was T0   → CHECKPOINT ↯ human paged (full, REJECT)
+  new-merchant #3            was T0   → CHECKPOINT ↯ human paged (full, REJECT)
+
+     Cap breached AND merchant off-allowlist AND irreversible.critical —
+     step-up authentication every time. A mandate scopes what an agent MAY
+     try; never_recede decides what NEVER stops needing a human, no matter
+     how much trust the same actor has banked on other lanes (I3).
+
+──────────────────────────────────────────────────────────────────────────
+  8/8 assertions passed. Nekuda makes agents able to pay;
+  Recede makes good behavior pay.
+──────────────────────────────────────────────────────────────────────────
+
