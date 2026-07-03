@@ -401,18 +401,21 @@ export function runChecks(sig: {
  * verification of the generator's work — the code moved UNDERNEATH the wiki and
  * the generator verified nothing, so a decay warrant carries no verify claim.
  *
- * Lane-neutrality is enforced in `sealEventWarrant`, which SKIPS the lane
- * update()/putTrust() entirely for a decay event — the (actor, doc.map) lane
- * moves by nothing at all, neither score NOR sample_count. Returning no checks
- * here is the honest recorder posture (no fabricated PASS), but it is NOT what
- * keeps the lane still: an earlier fix relied on the empty-check trick alone
- * (mean check confidence 0 => 0 score step in weighting.ts) and that froze only
- * the SCORE, while update() still did `sample_count += 1`. Because tierFor caps
- * the tier by sample_count (I5), a frozen score did NOT freeze the tier — a
- * confidence-capped lane (T1/0.5913, sample_count 7) flipped to T2/AUTONOMOUS
- * after 3 empty decays crossed confidence_samples_per_tier[2] (10). The
- * lane-update skip closes BOTH channels. foldEvent still applies the real
- * per-page time/diff decay — only the generator LANE stops moving on decay.
+ * Lane-neutrality comes from sealing the decay outcome UNRESOLVED
+ * (`signalOf.counts === false`, weighting.ts:79-81); the warrant still folds
+ * through `update()` so protocol `replay()` reconstructs the lane byte-identically
+ * (I2). Returning no checks here is the honest recorder posture (no fabricated
+ * PASS), but it is NOT what keeps the lane still: an earlier fix relied on the
+ * empty-check trick alone (mean check confidence 0 => 0 score step in
+ * weighting.ts) and that froze only the SCORE, while a SUCCESS-sealed decay
+ * still counted `sample_count += 1`. Because tierFor caps the tier by
+ * sample_count (I5), a frozen score did NOT freeze the tier — a confidence-capped
+ * lane (T1/0.5913, sample_count 7) flipped to T2/AUTONOMOUS after 3 empty decays
+ * crossed confidence_samples_per_tier[2] (10). The UNRESOLVED disposition closes
+ * BOTH channels on BOTH the incremental and the replay path (update() no-ops on
+ * score, confidence, AND sample_count when counts is false). foldEvent still
+ * applies the real per-page time/diff decay — only the generator LANE stops
+ * moving on decay.
  *
  * The original predicate here (`changedFiles >= 0 && affectedPages >= 0`) was
  * ALWAYS true -> PASS@1 -> SUCCESS -> full +1.0 lane signal on EVERY decay,
@@ -565,7 +568,12 @@ export async function sealEventWarrant(opts: {
   const outcome = seal({
     warrant_ref: intent.id,
     actor: opts.generator,
-    result: anyFail ? "FAILURE" : "SUCCESS",
+    // A decay seals UNRESOLVED: the code moved underneath the wiki and the
+    // generator verified NOTHING, so there is honestly no resolved verdict on
+    // its lane. UNRESOLVED => signalOf.counts === false (weighting.ts:79-81),
+    // the lane-non-counting disposition. "UNRESOLVED" is a valid OutcomeResult
+    // literal (records.ts) — seal's union already accepts it, no new import.
+    result: opts.event.kind === "decay" ? "UNRESOLVED" : anyFail ? "FAILURE" : "SUCCESS",
     ground_truth_source: opts.groundTruth,
     human_touched: opts.humanTouched ?? false,
     prev: checkRecords[checkRecords.length - 1]?.id ?? action.id,
@@ -575,29 +583,28 @@ export async function sealEventWarrant(opts: {
 
   const warrant: Warrant = { intent, action, checks: checkRecords, checkpoints: [], outcome };
 
-  // DECAY IS LANE-NON-COUNTING. Decay is a page-level freshness signal (the code
-  // moved UNDERNEATH the wiki), NOT a generator-lane event: the generator earns
-  // lane trust from runs and loses it from bad samples; decay is orthogonal and
-  // must move the (actor, doc.map) lane by nothing at all — neither score NOR
-  // sample_count. Skipping update()/putTrust() is what closes BOTH inflation
-  // channels: the wave-4 checkless-seal froze only the SCORE (mean-confidence-0
-  // => 0 step), but update() still did `sample_count += 1`, and tierFor caps the
-  // tier by sample_count (I5). A frozen score does not freeze the tier — a
-  // confidence-capped lane (e.g. T1/0.5913, sample_count 7) flips to
-  // T2/AUTONOMOUS after 3 empty decays cross confidence_samples_per_tier[2].
-  // The decay warrant is still fully sealed above, so its event rides in
-  // expected_effects and the per-page sidecar decay (foldEvent/foldWarrants)
-  // is unchanged; only the LANE bookkeeping is skipped.
-  let after: TrustState;
-  if (opts.event.kind === "decay") {
-    after = before;
-  } else {
-    // Gap-review advisory (binding): update() takes opts.now as a STRING —
-    // `{ now }` (the function) would type-strip silently and corrupt
-    // TrustState.updated on JSON serialization. Always call it: `{ now: now() }`.
-    after = update(before, warrant, opts.policy, { now: now() }).state;
-    opts.ledger.putTrust(after);
-  }
+  // DECAY IS LANE-NON-COUNTING — and that neutrality comes from the UNRESOLVED
+  // outcome sealed above (signalOf.counts === false, weighting.ts:79-81), NOT
+  // from skipping the lane update. Every event — decay INCLUDED — folds through
+  // update()+putTrust() so the incremental lane and the protocol replay() (which
+  // folds EVERY in-scope warrant, trust.ts:173-188) fold the IDENTICAL sequence
+  // => I2 (replay == incremental) holds on all trust-bearing fields (score,
+  // confidence, sample_count, window_ref, tier), modulo the non-hashed `updated`.
+  // Because s.counts is false for the decay, update() is a provable no-op on
+  // (score, confidence, sample_count) — closing BOTH inflation channels (the
+  // wave-4 checkless-seal froze only the SCORE; sample_count still crept and
+  // tierFor caps tier by sample_count, I5). The earlier `after = before` skip
+  // left replay to RE-derive window_ref (and, when decay sealed SUCCESS, to
+  // count it) so getTrust and replay diverged — an I2 defect the skip caused.
+  // The decay warrant is fully sealed above, so its event rides in
+  // expected_effects and the per-page sidecar decay (foldEvent/foldWarrants) is
+  // unchanged (the sidecar reads outcome PRESENCE only, never outcome.result).
+  //
+  // Gap-review advisory (binding): update() takes opts.now as a STRING —
+  // `{ now }` (the function) would type-strip silently and corrupt
+  // TrustState.updated on JSON serialization. Always call it: `{ now: now() }`.
+  const after = update(before, warrant, opts.policy, { now: now() }).state;
+  opts.ledger.putTrust(after);
 
   return { warrant, before, after };
 }

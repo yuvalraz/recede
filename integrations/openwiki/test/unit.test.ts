@@ -49,7 +49,7 @@ import {
   type Sidecar,
   type WikiEvent,
 } from "../openwiki-adapter.ts";
-import { MemoryLedger, coldStart, open, gate, RISK_ORDER, type Warrant } from "../../../reference/ts/src/index.ts";
+import { MemoryLedger, coldStart, open, gate, replay, RISK_ORDER, type Warrant } from "../../../reference/ts/src/index.ts";
 import { MechanicalVerifier, samplePages, verifyPage, type ClaimVerifier } from "../sampler.ts";
 import { mulberry32, planFileName } from "../cli.ts";
 
@@ -976,7 +976,42 @@ test("CR-DECAY-4: on a confidence-capped lane, empty-diff decays never cross the
   assert.equal(persisted.tier, "T1", "3 empty decays must NOT promote T1 -> T2");
   assert.equal(gate(persisted, "reversible.low", policy).autonomous, false, "reversible.low stays a CHECKPOINT — the gate never opens on bookkeeping");
   assert.deepEqual(RISK_ORDER.map((r) => gate(persisted, r, policy).autonomous), posture0, "every gate posture is byte-identical across the decays");
-  assert.equal(after.sample_count, before.sample_count, "sealEventWarrant returns the unchanged lane for a decay");
+  assert.equal(after.sample_count, before.sample_count, "sealEventWarrant returns the lane with unchanged score & sample_count for a decay");
+});
+
+test("I2: protocol replay(actor, doc.map, warrants) == getTrust after N decays (the LANE-replay coverage gap that hid the decay-under-doc.map defect)", async () => {
+  const gen = "openwiki@test";
+  const policy = docPolicy();
+  const ledger = await confidenceCappedLane(gen); // 7 clean runs -> T1, sample_count 7
+  for (let i = 0; i < 5; i++) {
+    await sealEventWarrant({ ledger, policy, generator: gen,
+      event: { kind: "decay", runId: `d${i}`, fromHead: "aaa", toHead: "bbb", changedFiles: [], nowMs: Date.parse(T1) + i },
+      intent: "wiki decay", checks: decayChecks(), groundTruth: "git-diff" });
+  }
+  const warrants = ledger.warrantsFor(gen, DOC_MAP_TASK);
+
+  // (a) disposition: every decay seals UNRESOLVED so signalOf.counts === false.
+  for (const w of warrants) {
+    if (eventOf(w)?.kind === "decay") {
+      assert.equal(w.outcome?.result, "UNRESOLVED", "decay must seal UNRESOLVED (the lane-non-counting disposition)");
+    }
+  }
+
+  const incremental = ledger.getTrust(gen, DOC_MAP_TASK)!;
+  const replayed = replay(gen, DOC_MAP_TASK, warrants, policy); // THE protocol path getTrust must reconstruct from.
+
+  // (b) the proven defect, both sides: pre-fix replayed.sample_count was 12 (7 + 5 counted decays) vs incremental 7.
+  assert.equal(incremental.sample_count, 7, "incremental lane never counted the decays");
+  assert.equal(replayed.sample_count, 7, "protocol replay() MUST NOT count the decays (I2) — the defect guard");
+
+  // (c) FULL I2: replay reconstructs the lane on EVERY trust-bearing field, incl. window_ref
+  // (which the rejected 'keep the skip' variant would diverge on). `updated` is the ONE
+  // documented non-hashed divergence (Durable Decision 5) — normalize it, deep-equal the rest.
+  assert.deepEqual(
+    { ...replayed, updated: undefined },
+    { ...incremental, updated: undefined },
+    "protocol replay() reconstructs the doc.map lane byte-identically (modulo the non-hashed `updated`)",
+  );
 });
 
 test("H-1: overallBand fails CLOSED on an unknown band string; all three valid bands still render", () => {
