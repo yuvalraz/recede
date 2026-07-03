@@ -49,8 +49,9 @@ import {
   type Sidecar,
   type WikiEvent,
 } from "../openwiki-adapter.ts";
-import { MemoryLedger, open, type Warrant } from "../../../reference/ts/src/index.ts";
+import { MemoryLedger, coldStart, open, type Warrant } from "../../../reference/ts/src/index.ts";
 import { MechanicalVerifier, samplePages, verifyPage, type ClaimVerifier } from "../sampler.ts";
+import { mulberry32, planFileName } from "../cli.ts";
 
 // Fixture tree for extraction tests: real files, no mocks.
 const tmpRoot = mkdtempSync(join(tmpdir(), "openwiki-adapter-test-"));
@@ -839,6 +840,7 @@ test("CR-1: zero-ref sample check is INCONCLUSIVE conf 0 — SUCCESS seal, but l
     { page: "openwiki/none.md", refsChecked: 0, refsBroken: 0, anyMissing: false, evidence: [] },
   ];
   const zeroLedger = new MemoryLedger();
+  const zeroBefore = coldStart("openwiki@test", DOC_MAP_TASK);
   const { warrant: zeroW, after: zeroAfter } = await sealEventWarrant({
     ledger: zeroLedger, policy: docPolicy(), generator: "openwiki@test",
     event: { kind: "sample", runId: "r1", results: zeroRef }, intent: "wiki sample",
@@ -846,6 +848,11 @@ test("CR-1: zero-ref sample check is INCONCLUSIVE conf 0 — SUCCESS seal, but l
   assert.equal(zeroW.outcome?.result, "SUCCESS"); // evidence gap is NOT failure
   assert.equal(zeroW.checks[0]?.verdict, "INCONCLUSIVE");
   assert.equal(zeroW.checks[0]?.confidence, 0);
+  // The corrected posture claim (doc note): an ALL-INCONCLUSIVE SUCCESS seal
+  // moves the lane by EXACTLY 0.000 — the +0.3 raw signal is nulled because
+  // the reference weights it by mean check confidence (0 here). The +0.3 only
+  // shows up in a MIXED seal with a co-passing check.
+  assert.equal(zeroAfter.score, zeroBefore.score, "all-INCONCLUSIVE seal is a 0.000 lane move, not +0.3");
   // The honest signal: a sample that examined nothing earns strictly less
   // lane trust than one that verified a real ref.
   const cleanRef: SampleResult[] = [
@@ -1016,4 +1023,36 @@ test("renderers are deterministic: pure functions of the sidecar, stable across 
   );
   // Repeated calls: byte-identical (no wall clock, no randomness).
   assert.equal(renderTrustMd(scOk), renderTrustMd(scOk));
+});
+
+// ---------------------------------------------------------------------------
+// Task 3.1: CLI-layer pure helpers (mulberry32 seeded PRNG, plan-snapshot name)
+// ---------------------------------------------------------------------------
+
+test("mulberry32 is a deterministic, reproducible PRNG in [0, 1)", () => {
+  // Same seed => identical sequence, across fresh instances (reproducible runs
+  // for --seed). This is what makes `sample --seed N` deterministic.
+  const a = mulberry32(7);
+  const b = mulberry32(7);
+  const seqA = [a(), a(), a(), a(), a()];
+  const seqB = [b(), b(), b(), b(), b()];
+  assert.deepEqual(seqA, seqB);
+  // Every draw is a real fraction in [0, 1) — samplePages' cumulative walk
+  // relies on this domain (out-of-domain values clamp to first/last).
+  for (const x of seqA) {
+    assert.ok(x >= 0 && x < 1, `draw ${x} out of [0,1)`);
+  }
+});
+
+test("mulberry32 different seeds diverge (not a constant stream)", () => {
+  const s1 = mulberry32(1)();
+  const s2 = mulberry32(2)();
+  assert.notEqual(s1, s2);
+});
+
+test("planFileName replaces ':' so the plan snapshot is a legal filename", () => {
+  // ISO timestamps carry colons; a colon is illegal on some filesystems and
+  // awkward everywhere. The snapshot file is <colons-replaced>.md.
+  assert.equal(planFileName("2026-07-03T07:15:30.123Z"), "2026-07-03T07-15-30.123Z");
+  assert.ok(!planFileName("2026-07-03T07:15:30.123Z").includes(":"));
 });
