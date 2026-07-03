@@ -397,24 +397,28 @@ export function runChecks(sig: {
 }
 
 /**
- * Checks for a `decay` event: NONE. Decay is lane-NEUTRAL bookkeeping, not a
+ * Checks for a `decay` event: NONE. Decay is lane-NON-COUNTING bookkeeping, not a
  * verification of the generator's work — the code moved UNDERNEATH the wiki and
  * the generator verified nothing, so a decay warrant carries no verify claim.
  *
- * An empty check set is what makes decay lane-neutral: the reference weights a
- * SUCCESS outcome's raw signal by MEAN check confidence (weighting.ts), and a
- * checkless warrant has mean confidence 0, so it moves the lane score by EXACTLY
- * 0.000. foldEvent still applies the real per-page time/diff decay — only the
- * generator-lane CHECK is corrected.
+ * Lane-neutrality is enforced in `sealEventWarrant`, which SKIPS the lane
+ * update()/putTrust() entirely for a decay event — the (actor, doc.map) lane
+ * moves by nothing at all, neither score NOR sample_count. Returning no checks
+ * here is the honest recorder posture (no fabricated PASS), but it is NOT what
+ * keeps the lane still: an earlier fix relied on the empty-check trick alone
+ * (mean check confidence 0 => 0 score step in weighting.ts) and that froze only
+ * the SCORE, while update() still did `sample_count += 1`. Because tierFor caps
+ * the tier by sample_count (I5), a frozen score did NOT freeze the tier — a
+ * confidence-capped lane (T1/0.5913, sample_count 7) flipped to T2/AUTONOMOUS
+ * after 3 empty decays crossed confidence_samples_per_tier[2] (10). The
+ * lane-update skip closes BOTH channels. foldEvent still applies the real
+ * per-page time/diff decay — only the generator LANE stops moving on decay.
  *
- * The old predicate here (`changedFiles >= 0 && affectedPages >= 0`) was ALWAYS
- * true -> PASS@1 -> SUCCESS -> full +1.0 lane signal on EVERY decay. Measured:
- * 20 empty-diff decays inflated the lane T0/0.120 -> T2/0.932 and flipped
- * reversible.low from checkpoint(full) -> AUTONOMOUS with zero real work —
- * inverting decay's purpose (bookkeeping-as-earned-trust, the same
- * trust-inflation class as vacuous evidence). The decay's evidence (head range,
- * changed-file count) lives in the warrant's intent proposed_action + the event
- * payload, not in a fabricated PASS.
+ * The original predicate here (`changedFiles >= 0 && affectedPages >= 0`) was
+ * ALWAYS true -> PASS@1 -> SUCCESS -> full +1.0 lane signal on EVERY decay,
+ * inflating the lane with zero real work (the first channel). The decay's
+ * evidence (head range, changed-file count) lives in the warrant's intent
+ * proposed_action + the event payload, not in a fabricated PASS.
  */
 export function decayChecks(): CheckSpec[] {
   return [];
@@ -570,11 +574,30 @@ export async function sealEventWarrant(opts: {
   opts.ledger.append(outcome);
 
   const warrant: Warrant = { intent, action, checks: checkRecords, checkpoints: [], outcome };
-  // Gap-review advisory (binding): update() takes opts.now as a STRING —
-  // `{ now }` (the function) would type-strip silently and corrupt
-  // TrustState.updated on JSON serialization. Always call it: `{ now: now() }`.
-  const { state: after } = update(before, warrant, opts.policy, { now: now() });
-  opts.ledger.putTrust(after);
+
+  // DECAY IS LANE-NON-COUNTING. Decay is a page-level freshness signal (the code
+  // moved UNDERNEATH the wiki), NOT a generator-lane event: the generator earns
+  // lane trust from runs and loses it from bad samples; decay is orthogonal and
+  // must move the (actor, doc.map) lane by nothing at all — neither score NOR
+  // sample_count. Skipping update()/putTrust() is what closes BOTH inflation
+  // channels: the wave-4 checkless-seal froze only the SCORE (mean-confidence-0
+  // => 0 step), but update() still did `sample_count += 1`, and tierFor caps the
+  // tier by sample_count (I5). A frozen score does not freeze the tier — a
+  // confidence-capped lane (e.g. T1/0.5913, sample_count 7) flips to
+  // T2/AUTONOMOUS after 3 empty decays cross confidence_samples_per_tier[2].
+  // The decay warrant is still fully sealed above, so its event rides in
+  // expected_effects and the per-page sidecar decay (foldEvent/foldWarrants)
+  // is unchanged; only the LANE bookkeeping is skipped.
+  let after: TrustState;
+  if (opts.event.kind === "decay") {
+    after = before;
+  } else {
+    // Gap-review advisory (binding): update() takes opts.now as a STRING —
+    // `{ now }` (the function) would type-strip silently and corrupt
+    // TrustState.updated on JSON serialization. Always call it: `{ now: now() }`.
+    after = update(before, warrant, opts.policy, { now: now() }).state;
+    opts.ledger.putTrust(after);
+  }
 
   return { warrant, before, after };
 }

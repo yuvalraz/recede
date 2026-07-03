@@ -926,6 +926,59 @@ test("CR-DECAY-3: 20 successive empty decays never flip a gate risk class from c
   assert.deepEqual(posture20, posture0, "20 empty decays leave every gate posture unchanged (no checkpoint->autonomous flip)");
 });
 
+/**
+ * Seed a CONFIDENCE-CAPPED lane: 7 clean runs land the generator at T1 / score
+ * ~0.5913 with sample_count 7 — one short of the T2 confidence threshold
+ * (confidence_samples_per_tier[2] === 10). scoreTier is already 2 (0.5913 >=
+ * score_tier_floor[2] === 0.55), so the ONLY thing pinning the lane at T1 is the
+ * I5 sample_count cap. This is the lane state the score-0.12 CR-DECAY-2/3 tests
+ * could not reach — there scoreTier was 0, which masked the sample_count channel.
+ */
+async function confidenceCappedLane(gen = "openwiki@test"): Promise<MemoryLedger> {
+  const ledger = new MemoryLedger();
+  for (let i = 0; i < 7; i++) {
+    await sealEventWarrant({ ledger, policy: docPolicy(), generator: gen,
+      event: runEvent({ runId: `run-${i}` }), intent: "wiki run",
+      checks: cleanRunChecks(), groundTruth: "openwiki-artifacts" });
+  }
+  return ledger;
+}
+
+test("CR-DECAY-4: on a confidence-capped lane, empty-diff decays never cross the sample_count tier cap (verifier probe2: 7 clean runs -> 3 empty decays keeps reversible.low a CHECKPOINT)", async () => {
+  // The SECOND, masked inflation channel. The wave-4 fix froze the decay SCORE
+  // (checkless seal => mean-confidence-0 => 0 score step) but decay still
+  // incremented sample_count, and tierFor caps the tier by sample_count (I5).
+  // A frozen score does NOT freeze the tier: T1/0.5913 (sample_count 7) flips to
+  // T2/AUTONOMOUS after just 3 empty decays (7 -> 10 crosses
+  // confidence_samples_per_tier[2]) — the gate opens on pure bookkeeping.
+  const gen = "openwiki@test";
+  const policy = docPolicy();
+  const ledger = await confidenceCappedLane(gen);
+  const before = ledger.getTrust(gen, DOC_MAP_TASK)!;
+  // Precondition: the lane sits in the confidence-capped danger zone the old
+  // tests could not reach.
+  assert.equal(before.tier, "T1", "seed lands at T1 (scoreTier 2 capped by sample_count 7 < 10)");
+  assert.equal(before.sample_count, 7, "seed lane has sample_count 7 (one short of the T2 threshold)");
+  assert.equal(gate(before, "reversible.low", policy).autonomous, false, "reversible.low starts as a CHECKPOINT");
+
+  const posture0 = RISK_ORDER.map((r) => gate(before, r, policy).autonomous);
+  let after = before;
+  for (let i = 0; i < 3; i++) {
+    ({ after } = await sealEventWarrant({ ledger, policy, generator: gen,
+      event: { kind: "decay", runId: `d${i}`, fromHead: "aaa", toHead: "bbb", changedFiles: [], nowMs: Date.parse(T1) + i },
+      intent: "wiki decay", checks: decayChecks(), groundTruth: "git-diff" }));
+  }
+  // getTrust is what status/gate actually consume — assert on the PERSISTED lane,
+  // not only on the value sealEventWarrant returned.
+  const persisted = ledger.getTrust(gen, DOC_MAP_TASK)!;
+  assert.equal(persisted.sample_count, 7, "decay must NOT increment sample_count (the second inflation channel)");
+  assert.equal(persisted.score, before.score, "decay must NOT move the lane score");
+  assert.equal(persisted.tier, "T1", "3 empty decays must NOT promote T1 -> T2");
+  assert.equal(gate(persisted, "reversible.low", policy).autonomous, false, "reversible.low stays a CHECKPOINT — the gate never opens on bookkeeping");
+  assert.deepEqual(RISK_ORDER.map((r) => gate(persisted, r, policy).autonomous), posture0, "every gate posture is byte-identical across the decays");
+  assert.equal(after.sample_count, before.sample_count, "sealEventWarrant returns the unchanged lane for a decay");
+});
+
 test("H-1: overallBand fails CLOSED on an unknown band string; all three valid bands still render", () => {
   // Measured bug: BAND_SEVERITY["ACTION"] is undefined; undefined > 0 is
   // false -> a corrupt band read as the HEALTHIEST state (ok fence copy).
