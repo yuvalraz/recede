@@ -36,10 +36,13 @@ import {
   sampleChecks,
   sealChecks,
   sealEventWarrant,
+  type PageState,
   type SampleResult,
+  type Sidecar,
   type WikiEvent,
 } from "../openwiki-adapter.ts";
 import { MemoryLedger, open, type Warrant } from "../../../reference/ts/src/index.ts";
+import { MechanicalVerifier, samplePages, verifyPage, type ClaimVerifier } from "../sampler.ts";
 
 // Fixture tree for extraction tests: real files, no mocks.
 const tmpRoot = mkdtempSync(join(tmpdir(), "openwiki-adapter-test-"));
@@ -558,4 +561,135 @@ test("distinct events yield distinct warrant ids (runId uniqueness)", async () =
   const two = await sealEventWarrant({ ledger, policy: docPolicy(), generator: "openwiki@test",
     event: mk(randomUUID()), intent: "wiki run", checks: cleanRunChecks(), groundTruth: "t", now: frozen });
   assert.notEqual(one.warrant.intent.id, two.warrant.intent.id);
+});
+
+// ---------------------------------------------------------------------------
+// Task 2.1: mechanical sampler (Phase 2)
+// ---------------------------------------------------------------------------
+
+/** Minimal PageState fixture for sampler tests (fold-produced shapes in real use). */
+function pageState(over: Partial<PageState> & { path: string }): PageState {
+  return {
+    sources: [], gitHead: "aaa", contentDigest: "d", score: C.EPSILON,
+    band: "warning", lastWarrant: "w0", sealedBy: null, lastSample: null,
+    lastEventMs: 0, ...over,
+  };
+}
+
+function sidecarWith(pages: PageState[]): Sidecar {
+  const sc = emptySidecar("openwiki@test");
+  for (const p of pages) sc.pages[p.path] = p;
+  return sc;
+}
+
+test("MechanicalVerifier: bare path ref checks existence; #symbol ref greps the file", async () => {
+  const v = new MechanicalVerifier(tmpRoot);
+  assert.equal((await v.verify("openwiki/a.md", "src/parser.ts")).ok, true);
+  const missing = await v.verify("openwiki/a.md", "src/gone.ts");
+  assert.equal(missing.ok, false);
+  assert.equal(missing.evidence, "missing: src/gone.ts");
+  assert.equal((await v.verify("openwiki/a.md", "src/parser.ts#parseAll")).ok, true);
+  const broken = await v.verify("openwiki/a.md", "src/parser.ts#ghostSymbol");
+  assert.equal(broken.ok, false);
+  assert.match(broken.evidence, /ghostSymbol/);
+  // Symbol fragment on a MISSING file: the missing file wins, evidence names the file part.
+  const missSym = await v.verify("openwiki/a.md", "src/gone.ts#anything");
+  assert.equal(missSym.ok, false);
+  assert.equal(missSym.evidence, "missing: src/gone.ts");
+});
+
+test("verifyPage aggregates refs; banding boundaries from aggregates: 0% ok, 20% warning, >20% action, missing file action", async () => {
+  const bandOf = (r: { refsChecked: number; refsBroken: number; anyMissing: boolean }) =>
+    bandFor(1, { brokenRatio: r.refsChecked ? r.refsBroken / r.refsChecked : 0, anyMissing: r.anyMissing });
+  // 0% broken: clean page.
+  const clean = await verifyPage(tmpRoot, pageState({ path: "openwiki/clean.md",
+    sources: ["src/parser.ts", "src/utils.ts#helperFn"] }));
+  assert.equal(clean.page, "openwiki/clean.md");
+  assert.equal(clean.refsChecked, 2);
+  assert.equal(clean.refsBroken, 0);
+  assert.equal(clean.anyMissing, false);
+  assert.equal(clean.evidence.length, 2);
+  assert.equal(bandOf(clean), "ok");
+  // Exactly 20% broken (1/5, ghost symbol on an existing file): warning, not action.
+  const fifth = await verifyPage(tmpRoot, pageState({ path: "openwiki/fifth.md",
+    sources: ["src/parser.ts", "src/utils.ts", "src/parser.ts#parseAll", "src/utils.ts#helperFn", "src/parser.ts#ghost"] }));
+  assert.equal(fifth.refsChecked, 5);
+  assert.equal(fifth.refsBroken, 1);
+  assert.equal(fifth.anyMissing, false);
+  assert.equal(bandOf(fifth), "warning");
+  // >20% broken (1/4): action.
+  const quarter = await verifyPage(tmpRoot, pageState({ path: "openwiki/quarter.md",
+    sources: ["src/parser.ts", "src/utils.ts", "src/utils.ts#helperFn", "src/parser.ts#ghost"] }));
+  assert.equal(quarter.refsBroken, 1);
+  assert.equal(bandOf(quarter), "action");
+  // Missing cited FILE at ratio 0.2: the missing flag alone reaches action.
+  const missing = await verifyPage(tmpRoot, pageState({ path: "openwiki/missing.md",
+    sources: ["src/gone.ts", "src/parser.ts", "src/utils.ts", "src/parser.ts#parseAll", "src/utils.ts#helperFn"] }));
+  assert.equal(missing.refsChecked, 5);
+  assert.equal(missing.refsBroken, 1);
+  assert.equal(missing.anyMissing, true);
+  assert.equal(bandOf(missing), "action");
+  assert.match(missing.evidence.join("\n"), /missing: src\/gone\.ts/);
+  // Sourceless page: zero refs, clean result, ratio guard avoids 0/0.
+  const none = await verifyPage(tmpRoot, pageState({ path: "openwiki/none.md", sources: [] }));
+  assert.deepEqual(none, { page: "openwiki/none.md", refsChecked: 0, refsBroken: 0, anyMissing: false, evidence: [] });
+});
+
+test("verifyPage accepts a custom ClaimVerifier (stub) — the pluggable seam", async () => {
+  const calls: string[] = [];
+  const stub: ClaimVerifier = {
+    verify(pagePath, ref) {
+      calls.push(`${pagePath}:${ref}`);
+      return Promise.resolve({ ok: ref.endsWith("#helperFn"), evidence: `stub: ${ref}` });
+    },
+  };
+  const res = await verifyPage(tmpRoot, pageState({ path: "openwiki/a.md",
+    sources: ["src/parser.ts", "src/utils.ts#helperFn"] }), stub);
+  assert.equal(res.refsBroken, 1); // the stub's verdicts, not the mechanical ones
+  assert.deepEqual(res.evidence, ["stub: src/parser.ts", "stub: src/utils.ts#helperFn"]);
+  assert.deepEqual(calls, ["openwiki/a.md:src/parser.ts", "openwiki/a.md:src/utils.ts#helperFn"]);
+  // anyMissing stays MECHANICAL (file-part existence at HEAD) even under a custom verifier:
+  // the seam upgrades claim verification, never the missing-file ground truth.
+  const res2 = await verifyPage(tmpRoot, pageState({ path: "openwiki/a.md", sources: ["src/gone.ts"] }),
+    { verify: () => ({ ok: true, evidence: "stub says fine" }) });
+  assert.equal(res2.anyMissing, true);
+  assert.equal(res2.refsBroken, 0);
+});
+
+test("samplePages weights by staleness and is deterministic under an injected rand", () => {
+  const nowMs = Date.parse(T3);
+  const sc = sidecarWith([
+    pageState({ path: "openwiki/stale.md", lastEventMs: nowMs - 999 }), // weight 1000
+    pageState({ path: "openwiki/fresh.md", lastEventMs: nowMs }),       // weight 1
+    pageState({ path: "openwiki/mid.md", lastEventMs: nowMs - 99 }),    // weight 100
+  ]);
+  // With rand 0.5 the stalest page holds a majority of the total weight -> always drawn first.
+  const picks = samplePages(sc, 2, nowMs, () => 0.5);
+  assert.deepEqual(picks, ["openwiki/stale.md", "openwiki/mid.md"]);
+  // Deterministic: identical rand sequence, identical draw.
+  assert.deepEqual(samplePages(sc, 2, nowMs, () => 0.5), picks);
+  // Full draw is a permutation: every page exactly once.
+  const all = samplePages(sc, 3, nowMs, () => 0.5);
+  assert.deepEqual([...all].sort(), ["openwiki/fresh.md", "openwiki/mid.md", "openwiki/stale.md"]);
+  // Clock skew (lastEventMs in the future) must not produce negative weights:
+  // sampling stays a total function, no duplicate/undefined picks.
+  const skewed = sidecarWith([
+    ...Object.values(sc.pages),
+    pageState({ path: "openwiki/future.md", lastEventMs: nowMs + 1e6 }),
+  ]);
+  const four = samplePages(skewed, 4, nowMs, () => 0.5);
+  assert.equal(new Set(four).size, 4);
+});
+
+test("samplePages caps at page count and returns [] for an empty sidecar", () => {
+  const nowMs = Date.parse(T0);
+  assert.deepEqual(samplePages(emptySidecar("openwiki@test"), 3, nowMs), []);
+  const sc = sidecarWith([
+    pageState({ path: "openwiki/a.md", lastEventMs: nowMs - 10 }),
+    pageState({ path: "openwiki/b.md", lastEventMs: nowMs - 20 }),
+  ]);
+  const picks = samplePages(sc, 10, nowMs, () => 0.1);
+  assert.equal(picks.length, 2); // capped at page count
+  assert.equal(new Set(picks).size, 2); // without replacement
+  assert.deepEqual(samplePages(sc, 0, nowMs, () => 0.1), []);
 });
