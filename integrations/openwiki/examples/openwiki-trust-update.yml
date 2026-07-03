@@ -1,0 +1,106 @@
+# openwiki-trust-update.yml
+#
+# TEMPLATE (documented, not run by this repo's tests). Copy it into
+# .github/workflows/ in the repo whose OpenWiki wiki you calibrate, then fill in
+# the two placeholders marked TODO below.
+#
+# What it does on a daily schedule:
+#   1. runs your OpenWiki generator under the wrap (`run --inject`), which
+#      re-generates the wiki, seals one doc.map warrant, and refreshes the
+#      sidecar + TRUST.md + the AGENTS.md fence;
+#   2. decays pages whose source files moved since the last run (`decay`);
+#   3. opens a pull request whose body is the trust-delta the wrap prints.
+#
+# It never seals a `sample` or a `seal`: mechanical sampling and human seals stay
+# manual, so a PR here only ever reports generation + decay, never a fabricated
+# human vouch.
+#
+# You supply, as your OWN repository secrets (this template ships none):
+#   - the OpenWiki binary / invocation (TODO in the "run" step);
+#   - any model API key OpenWiki needs, e.g. secrets.OPENWIKI_MODEL_KEY.
+#
+# Trust is earned across runs, so the ledger must persist between runs. The
+# actions/cache steps below carry ./wiki-trust.jsonl forward; the ledger is
+# private evidence and is deliberately kept OUT of the PR via `add-paths`.
+
+name: openwiki-trust-update
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily at 06:00 UTC
+  workflow_dispatch: {} # allow manual runs
+
+permissions:
+  contents: write # commit the refreshed trust surfaces onto the PR branch
+  pull-requests: write # open/update the trust PR
+
+jobs:
+  refresh-wiki-trust:
+    runs-on: ubuntu-latest
+    env:
+      LEDGER: ./wiki-trust.jsonl
+    steps:
+      - name: Checkout with full history so decay can diff the git range
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The trust ledger is the only truth and must survive between runs so the
+      # generator lane keeps accruing. Restore it before, save it after.
+      - name: Restore the trust ledger
+        uses: actions/cache@v4
+        with:
+          path: wiki-trust.jsonl
+          key: openwiki-trust-ledger
+
+      - name: Run OpenWiki under the wrap
+        run: |
+          # TODO: replace `openwiki` after `--` with your real generator
+          # invocation, passing any model key from your secrets, e.g.:
+          #   -- openwiki generate --model "$OPENWIKI_MODEL_KEY"
+          node integrations/openwiki/cli.ts run \
+            --ledger "$LEDGER" --inject \
+            -- openwiki | tee run-delta.md
+        # env:
+        #   OPENWIKI_MODEL_KEY: ${{ secrets.OPENWIKI_MODEL_KEY }} # TODO: your own secret
+
+      - name: Decay pages whose sources moved
+        run: |
+          node integrations/openwiki/cli.ts decay \
+            --ledger "$LEDGER" | tee decay-delta.md
+
+      - name: Compose the PR body from the trust deltas
+        id: body
+        run: |
+          {
+            echo 'body<<PR_BODY_EOF'
+            echo '## Wiki trust update'
+            echo
+            echo '_Automated: OpenWiki re-generation + source-diff decay under Recede._'
+            echo
+            echo '### From `run`'
+            cat run-delta.md
+            echo
+            echo '### From `decay`'
+            cat decay-delta.md
+            echo 'PR_BODY_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open the trust-update pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: openwiki-trust-update
+          title: "chore(wiki): daily trust update"
+          body: ${{ steps.body.outputs.body }}
+          commit-message: "chore(wiki): refresh generated wiki + trust surfaces"
+          # Stage only the trust surfaces. The ledger stays out of the PR: it is
+          # private evidence, carried between runs by the cache step above.
+          add-paths: |
+            openwiki/**
+            TRUST.md
+            AGENTS.md

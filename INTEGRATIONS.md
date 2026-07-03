@@ -248,6 +248,44 @@ runs."
 
 ---
 
+## 7. OpenWiki: trust-calibrated wikis
+
+*Reference adapter: [`integrations/openwiki/openwiki-adapter.ts`](./integrations/openwiki/openwiki-adapter.ts)
+· docs: [`integrations/openwiki/README.md`](./integrations/openwiki/README.md)
+· runnable demo: `node integrations/openwiki/demo.ts`.*
+
+This is the **docs flow** of the one-protocol-many-flows gallery. OpenWiki
+generates a wiki from a codebase, but nothing in it knows whether a page is
+still true after the code beneath it moves. The task type is `doc.map`, and the
+question Recede answers is "which of these generated pages should I still
+trust?"
+
+The wrap gives every page a trust trajectory. Pages start at an epsilon floor on
+generation, rise only on a human seal, and decay when their cited source files
+change. Four wiki events each seal one `doc.map` warrant:
+
+| OpenWiki event | Recede evidence | V&V lens |
+|---|---|---|
+| `run` (the generator produced or updated pages) | a `doc.map` warrant (child exit, wiki present, gitHead binding, plan snapshot) | **VERIFY** |
+| `seal` (a human vouched for named pages) | a human-signed check | **VALIDATE** |
+| `sample` (mechanical re-verification of cited refs at HEAD) | one check per page; a page that fails bands `action` and costs the lane trust | **VERIFY** |
+| `decay` (source files moved under the pages) | a recorded event, deliberately lane-non-counting | none |
+
+The per-page sidecar (`<wiki>/.trust/state.json`) is a **derived cache**,
+reconstructible byte-identically from the warrant chain via `replay`. The read
+surface is a generated `TRUST.md` table plus a gated fenced block in `AGENTS.md`
+whose language downgrades with the wiki's worst band. The gate manifests where a
+wiki reader meets it (the fence language and the `status` posture), not in a
+receding human-approval loop.
+
+OpenWiki is never forked or patched. The wrap runs it as a child process,
+snapshots its ephemeral `_plan.md` before OpenWiki deletes it, and reads its
+output. Sampling is mechanical today (file existence plus a symbol grep); an LLM
+`ClaimVerifier` is the named upgrade path, and a single-runner ceiling on the
+sidecar is documented. Zero runtime dependencies.
+
+---
+
 ## Start here
 
 1. **Wrap one function.** Take the single step whose oversight you want to be
@@ -261,4 +299,6 @@ runs."
    receding and snapping back on a REVERT (§3). `node integrations/okf/demo.ts`
    exports a ledger to an auditable OKF bundle (§4). `node
    examples/agentic-checkout/checkout.ts` shows the same pattern on a
-   mandate-carrying shopping agent (§5).
+   mandate-carrying shopping agent (§5). `node integrations/openwiki/demo.ts`
+   gives an OpenWiki-generated wiki a per-page trust trajectory, fully offline
+   (§7).
