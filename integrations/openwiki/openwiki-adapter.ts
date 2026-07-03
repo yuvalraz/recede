@@ -114,11 +114,13 @@ export function bandFor(score: number, sample?: SampleFinding | null): Band {
 // ---------------------------------------------------------------------------
 
 /**
- * Path-like token with an extension and an optional #symbol fragment.
+ * Path-like token with an extension and an optional #symbol fragment. The
+ * fragment must END on [\w$]: '.' and '-' are legal interior symbol chars but
+ * a trailing one is sentence punctuation, not part of the symbol.
  * Known non-goal: Windows-style backslash refs (src\parser.ts) never match —
  * wiki pages cite POSIX-style repo-relative paths.
  */
-const REF_RE = /[\w./-]+\.\w+(#[\w$.-]+)?/g;
+const REF_RE = /[\w./-]+\.\w+(#[\w$.-]*[\w$])?/g;
 
 /**
  * Extract repo-relative source refs from a wiki page's markdown: path-like
@@ -135,7 +137,12 @@ export function extractSources(markdown: string, repoRoot: string): string[] {
     // Absolute paths — and URLs: ':' is outside REF_RE's class, so a URL's
     // match starts at its "//" and this reject swallows the tail too.
     if (token.startsWith("/")) continue;
-    if (token.split("/").includes("..")) continue; // '..' segment: tree escape, never repo-relative
+    // Non-canonical segments: '..' escapes the tree; '.' and '' (from './x',
+    // 'x/./y', 'x//y') resolve on disk via join() but are kept verbatim and
+    // never match git's canonical paths in decay changedFiles — silent
+    // under-decay. Exact-segment test: '..' inside a filename stays legal.
+    const segments = token.split("/");
+    if (segments.includes("..") || segments.includes(".") || segments.includes("")) continue;
     const filePart = token.split("#", 1)[0];
     if (!existsSync(join(repoRoot, filePart))) continue;
     if (seen.has(token)) continue;
@@ -220,6 +227,12 @@ export function foldEvent(prev: Sidecar, event: WikiEvent, warrantId: string, ts
   const next: Sidecar = { generator: prev.generator, gitHead: prev.gitHead, pages: {}, updated: ts };
   for (const [path, p] of Object.entries(prev.pages)) next.pages[path] = { ...p };
   const tsMs = Date.parse(ts);
+  // A corrupt intent.ts would otherwise write NaN into lastEventMs silently
+  // and surface only at the NEXT decay fold — blaming the wrong warrant.
+  // Fail here, naming the warrant that actually carries the corruption.
+  if (!Number.isFinite(tsMs)) {
+    throw new Error(`non-finite intent ts in warrant ${warrantId}`);
+  }
 
   switch (event.kind) {
     case "run": {
@@ -242,6 +255,14 @@ export function foldEvent(prev: Sidecar, event: WikiEvent, warrantId: string, ts
       break;
     }
     case "decay": {
+      // Guard the time-base FIELD, not a derived elapsed: `null - number`
+      // coerces null to 0 (finite) and numeric strings coerce through
+      // subtraction, so a corrupt-ledger nowMs (null / missing / "123") would
+      // fold silently past an elapsed-only check, no-op this decay, and poison
+      // lastEventMs for the next one.
+      if (typeof event.nowMs !== "number" || !Number.isFinite(event.nowMs)) {
+        throw new Error(`non-finite decay nowMs in warrant ${warrantId}`);
+      }
       const changed = new Set(event.changedFiles);
       for (const p of Object.values(next.pages)) {
         const sourceMatch = p.sources.some((s) => changed.has(s.split("#", 1)[0]));
@@ -249,14 +270,9 @@ export function foldEvent(prev: Sidecar, event: WikiEvent, warrantId: string, ts
         // cannot prove the change is unrelated to it.
         const sourceless = p.sources.length === 0 && event.changedFiles.length > 0;
         if (sourceMatch || sourceless) p.score = diffDecay(p.score);
-        // Guard the time base: a non-finite elapsed (NaN nowMs, missing key)
-        // must fail loudly, and a negative elapsed (clock skew) clamps to 0 —
-        // decay may never RAISE a score (0.5^negative > 1).
-        const elapsed = event.nowMs - p.lastEventMs;
-        if (!Number.isFinite(elapsed)) {
-          throw new Error(`non-finite decay elapsed in warrant ${warrantId}`);
-        }
-        p.score = timeDecay(p.score, Math.max(0, elapsed));
+        // Negative elapsed (clock skew) clamps to 0 — decay may never RAISE a
+        // score (0.5^negative > 1).
+        p.score = timeDecay(p.score, Math.max(0, event.nowMs - p.lastEventMs));
         p.lastEventMs = event.nowMs;
         p.lastWarrant = warrantId;
         p.band = bandFor(p.score, p.lastSample);
@@ -298,8 +314,9 @@ export function foldEvent(prev: Sidecar, event: WikiEvent, warrantId: string, ts
 /**
  * Recover the WikiEvent that rode in a warrant's `expected_effects[0]`.
  * Returns undefined for warrants that are not openwiki events; throws (naming
- * the warrant id) when the payload carries the prefix but is not valid JSON —
- * a corrupt ledger must fail loudly, not fold silently.
+ * the warrant id) when the payload carries the prefix but is not valid JSON.
+ * Valid-JSON-but-corrupt SHAPES (null/string nowMs, corrupt counts) parse
+ * fine here — foldEvent's field guards are what reject those at fold time.
  */
 export function eventOf(w: Warrant): WikiEvent | undefined {
   const payload = w.intent.expected_effects[0];
@@ -440,12 +457,29 @@ export async function sealEventWarrant(opts: {
   humanTouched?: boolean;
   now?: () => string;
 }): Promise<{ warrant: Warrant; before: TrustState; after: TrustState }> {
-  // Reject invalid events BEFORE they are stringified into the ledger: a
-  // non-finite nowMs (NaN/±Infinity/missing) serializes as null via
-  // JSON.stringify — nothing throws until fold time, and the corrupt warrant
-  // would be sealed (and replayed) forever.
+  // Reject invalid events BEFORE they are stringified into the ledger. Two
+  // distinct corrupt shapes: JSON.stringify maps NaN/±Infinity to null, while
+  // an undefined-valued key is DROPPED entirely — either way nothing would
+  // throw until fold time, and the corrupt warrant would be sealed (and
+  // replayed) forever. foldEvent's field guards catch both shapes again on
+  // the replay path.
   if (opts.event.kind === "decay" && !Number.isFinite(opts.event.nowMs)) {
     throw new Error(`decay event ${opts.event.runId}: nowMs must be finite, got ${opts.event.nowMs}`);
+  }
+  // Sample results share the band math: a NaN refsBroken is incomparable
+  // (NaN > 0.2 === false), so it would seal SUCCESS, serialize to null, and
+  // replay as a CLEAN sample. Counts must be finite, non-negative, and
+  // consistent (refsBroken <= refsChecked).
+  if (opts.event.kind === "sample") {
+    for (const r of opts.event.results) {
+      const bad = (n: number) => typeof n !== "number" || !Number.isFinite(n) || n < 0;
+      if (bad(r.refsChecked) || bad(r.refsBroken) || r.refsBroken > r.refsChecked) {
+        throw new Error(
+          `sample event ${opts.event.runId}: result for ${r.page} has invalid counts ` +
+            `(refsChecked=${r.refsChecked}, refsBroken=${r.refsBroken})`,
+        );
+      }
+    }
   }
   const now = opts.now ?? (() => new Date().toISOString());
   const before =

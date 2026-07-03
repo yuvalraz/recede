@@ -46,6 +46,7 @@ const tmpRoot = mkdtempSync(join(tmpdir(), "openwiki-adapter-test-"));
 mkdirSync(join(tmpRoot, "src"), { recursive: true });
 writeFileSync(join(tmpRoot, "src", "parser.ts"), "export function parseAll() {}\n");
 writeFileSync(join(tmpRoot, "src", "utils.ts"), "export function helperFn() {}\n");
+writeFileSync(join(tmpRoot, "src", "a..b.ts"), "export const dotted = true;\n");
 
 // ---------------------------------------------------------------------------
 // Task 1.1: trust math + banding
@@ -108,6 +109,23 @@ test("extractSources rejects '..' segments (tree escape; phantom refs silently u
   // Both resolve to tmpRoot/src/parser.ts — real files OUTSIDE the repo root.
   const md = "escape ../src/parser.ts and nested src/../../src/parser.ts";
   assert.deepEqual(extractSources(md, inner), []);
+});
+
+test("extractSources: #fragment never absorbs trailing sentence punctuation; interior '.'/'-' stay whole", () => {
+  // Sentence-final '.' after a fragment is prose, not part of the symbol.
+  assert.deepEqual(extractSources("see src/parser.ts#note. Next sentence.", tmpRoot), ["src/parser.ts#note"]);
+  assert.deepEqual(extractSources("dangling src/parser.ts#sym- end", tmpRoot), ["src/parser.ts#sym"]);
+  assert.deepEqual(extractSources("whole src/parser.ts#my-symbol here", tmpRoot), ["src/parser.ts#my-symbol"]);
+});
+
+test("extractSources rejects denormalized-but-equivalent refs ('.' and '' segments) that bypass decay matching", () => {
+  // All three resolve to src/parser.ts on disk (join() normalizes) but are
+  // kept verbatim and never match git's canonical paths in changedFiles —
+  // the same silent-under-decay class as the '..' escape.
+  const md = "See src/./parser.ts then ./src/parser.ts then src//parser.ts here.";
+  assert.deepEqual(extractSources(md, tmpRoot), []);
+  // Exact-segment semantics preserved: '..' INSIDE a filename is not a segment.
+  assert.deepEqual(extractSources("kept: src/a..b.ts", tmpRoot), ["src/a..b.ts"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -454,16 +472,57 @@ test("sealEventWarrant rejects a decay event with non-finite nowMs before it rea
   assert.equal(ledger.warrantsFor("openwiki@test", DOC_MAP_TASK).length, 0);
 });
 
-test("foldEvent throws on non-finite decay elapsed, naming the warrant", () => {
+test("sealEventWarrant rejects sample results with non-finite or inconsistent counts before they reach the ledger", async () => {
+  const ledger = new MemoryLedger();
+  // NaN is incomparable (NaN > 0.2 === false): an unguarded NaN refsBroken
+  // seals SUCCESS, serializes to null, and replays as a CLEAN sample.
+  const cases: [number, number][] = [
+    [1, Number.NaN], [1, Infinity], [Number.NaN, 0], [1, -1], [-1, 0], [1, 2],
+  ];
+  for (const [refsChecked, refsBroken] of cases) {
+    const results: SampleResult[] = [
+      { page: "openwiki/a.md", refsChecked, refsBroken, anyMissing: false, evidence: [] },
+    ];
+    await assert.rejects(
+      sealEventWarrant({ ledger, policy: docPolicy(), generator: "openwiki@test",
+        event: { kind: "sample", runId: "r1", results }, intent: "wiki sample",
+        checks: sampleChecks(results), groundTruth: "mechanical-sample" }),
+      /sample event r1: .*invalid counts/,
+    );
+  }
+  // The guard fires BEFORE the intent append: nothing corrupt ever hits the ledger.
+  assert.equal(ledger.warrantsFor("openwiki@test", DOC_MAP_TASK).length, 0);
+});
+
+test("foldEvent guards the decay nowMs FIELD: null, missing, and numeric-string corrupt-ledger shapes all throw", () => {
   const s1 = foldEvent(emptySidecar("openwiki@test"), runEvent(), "w1", T0);
+  // Hand-built ledger JSON (stringify can never produce the string shape;
+  // null is what NaN/±Infinity serialize to; a missing key is what an
+  // undefined-valued key becomes). A derived-elapsed guard misses ALL of
+  // these: `null - number` and `"123" - number` coerce to finite values.
+  const corrupt = [
+    '{"kind":"decay","runId":"rY","fromHead":"aaa","toHead":"bbb","changedFiles":[],"nowMs":null}',
+    '{"kind":"decay","runId":"rZ","fromHead":"aaa","toHead":"bbb","changedFiles":[]}',
+    '{"kind":"decay","runId":"rW","fromHead":"aaa","toHead":"bbb","changedFiles":[],"nowMs":"123"}',
+  ];
+  for (const line of corrupt) {
+    assert.throws(
+      () => foldEvent(s1, JSON.parse(line) as WikiEvent, "wBad", T1),
+      /non-finite decay nowMs in warrant wBad/,
+    );
+  }
   const nan: WikiEvent = { kind: "decay", runId: "rX", fromHead: "aaa", toHead: "bbb",
     changedFiles: [], nowMs: Number.NaN };
-  assert.throws(() => foldEvent(s1, nan, "wBad", T1), /non-finite decay elapsed in warrant wBad/);
-  // Missing key — the shape a hand-edited or pre-guard corrupt ledger could carry.
-  const missing = JSON.parse(JSON.stringify(
-    { kind: "decay", runId: "rY", fromHead: "aaa", toHead: "bbb", changedFiles: [] },
-  )) as WikiEvent;
-  assert.throws(() => foldEvent(s1, missing, "wBad2", T1), /non-finite decay elapsed/);
+  assert.throws(() => foldEvent(s1, nan, "wBad2", T1), /non-finite decay nowMs in warrant wBad2/);
+});
+
+test("foldEvent throws on a corrupt intent ts, naming the CURRENT warrant (not the next decay's)", () => {
+  // Unguarded, a corrupt ts writes NaN into lastEventMs silently and only
+  // surfaces at the NEXT decay fold — blaming the wrong warrant.
+  assert.throws(
+    () => foldEvent(emptySidecar("openwiki@test"), runEvent(), "wTs", "not-a-timestamp"),
+    /non-finite intent ts in warrant wTs/,
+  );
 });
 
 test("negative decay dt (clock skew) never raises a score", () => {
