@@ -413,9 +413,14 @@ export function decayChecks(sig: { changedFiles: number; affectedPages: number }
  *
  * POSTURE RULE: a zero-ref result examined NOTHING — that is an evidence gap,
  * not a clean pass. The check THROWS => INCONCLUSIVE (conf 0); the outcome
- * still seals SUCCESS but the lane signal drops from +1.0 to the honest +0.3
- * (same rule as degraded-head / plan-snapshot-absent in runChecks). No VERIFY
- * check may record PASS@1 when refsChecked is 0.
+ * still seals SUCCESS but at a reduced RAW signal (+0.3, not +1.0). Note the
+ * reference then weights that raw by MEAN check confidence (weighting.ts): an
+ * ALL-INCONCLUSIVE seal (every result zero-ref) has mean confidence 0, so it
+ * moves the lane by 0.000 — the +0.3 is nulled, not applied. Only a MIXED seal
+ * (a real PASS@1 alongside the inconclusive ones) realizes the reduced
+ * positive. Either way, no VERIFY check may record PASS@1 when refsChecked
+ * is 0. (Same throw-on-gap rule as degraded-head / plan-snapshot in runChecks,
+ * where a co-passing check keeps mean confidence above zero.)
  */
 export function sampleChecks(results: SampleResult[]): CheckSpec[] {
   return results.map((r) =>
