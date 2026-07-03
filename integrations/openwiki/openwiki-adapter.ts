@@ -144,6 +144,11 @@ export function extractSources(markdown: string, repoRoot: string): string[] {
     const segments = token.split("/");
     if (segments.includes("..") || segments.includes(".") || segments.includes("")) continue;
     const filePart = token.split("#", 1)[0];
+    // Deliberate ceiling (reviewer-ratified): existsSync accepts DIRECTORIES,
+    // so a dir-with-extension ref survives extraction. The sampler's isFile()
+    // gate reports such refs as broken instead of crashing on EISDIR —
+    // extraction stays a cheap existence probe. ponytail: statSync here is
+    // the upgrade path if dir refs ever need rejecting at the source.
     if (!existsSync(join(repoRoot, filePart))) continue;
     if (seen.has(token)) continue;
     seen.add(token);
@@ -405,12 +410,19 @@ export function decayChecks(sig: { changedFiles: number; affectedPages: number }
  * Checks for a `sample` event: one VERIFY per sampled page, failing when the
  * finding alone reaches the action band — a broken wiki costs the generator
  * lane trust (FAIL check => FAILURE outcome => negative signal). Intended.
+ *
+ * POSTURE RULE: a zero-ref result examined NOTHING — that is an evidence gap,
+ * not a clean pass. The check THROWS => INCONCLUSIVE (conf 0); the outcome
+ * still seals SUCCESS but the lane signal drops from +1.0 to the honest +0.3
+ * (same rule as degraded-head / plan-snapshot-absent in runChecks). No VERIFY
+ * check may record PASS@1 when refsChecked is 0.
  */
 export function sampleChecks(results: SampleResult[]): CheckSpec[] {
   return results.map((r) =>
     check.verify(`openwiki:sample:${r.page}`, () => {
+      if (r.refsChecked === 0) throw new Error("no refs to verify: evidence gap, not failure");
       const finding: SampleFinding = {
-        brokenRatio: r.refsChecked ? r.refsBroken / r.refsChecked : 0,
+        brokenRatio: r.refsBroken / r.refsChecked,
         anyMissing: r.anyMissing,
       };
       return bandFor(1, finding) !== "action";
@@ -471,6 +483,11 @@ export async function sealEventWarrant(opts: {
   // replay as a CLEAN sample. Counts must be finite, non-negative, and
   // consistent (refsBroken <= refsChecked).
   if (opts.event.kind === "sample") {
+    // An empty results array examined NOTHING: it would seal SUCCESS with
+    // zero checks — lane credit for a sample that never ran. Reject it.
+    if (opts.event.results.length === 0) {
+      throw new Error(`sample event ${opts.event.runId}: empty results — a sample must examine at least one page`);
+    }
     for (const r of opts.event.results) {
       const bad = (n: number) => typeof n !== "number" || !Number.isFinite(n) || n < 0;
       if (bad(r.refsChecked) || bad(r.refsBroken) || r.refsBroken > r.refsChecked) {
@@ -557,6 +574,9 @@ function sortedPages(sidecar: Sidecar): PageState[] {
 
 /** Fixed-width score rendering: deterministic and diff-friendly. */
 function fmtScore(score: number): string {
+  // toFixed renders NaN/Infinity VERBATIM — a corrupt score would flow
+  // straight into TRUST.md and the fence as prose. Fail loud instead.
+  if (!Number.isFinite(score)) throw new Error(`non-finite score ${score}`);
   return score.toFixed(3);
 }
 
@@ -564,16 +584,29 @@ function fmtScore(score: number): string {
 export function overallBand(sidecar: Sidecar): Band {
   let worst: Band = "ok";
   for (const p of Object.values(sidecar.pages)) {
+    // Fail CLOSED on corrupt band strings: BAND_SEVERITY[unknown] is
+    // undefined, every comparison against it is false, and a corrupt-ledger
+    // band would silently read as the HEALTHIEST state in the fence copy.
+    if (!(p.band in BAND_SEVERITY)) throw new Error(`unknown band "${p.band}" for ${p.path}`);
     if (BAND_SEVERITY[p.band] > BAND_SEVERITY[worst]) worst = p.band;
   }
   return worst;
+}
+
+/**
+ * Escape a page path for a TRUST.md table cell (renderTrustMd only): a raw
+ * '|' adds a phantom column and a newline splits the row. Fence/delta lines
+ * are not table cells and render paths verbatim.
+ */
+function pathCell(path: string): string {
+  return path.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 
 /** The per-page standing table written to `<repo>/TRUST.md` by the CLI. */
 export function renderTrustMd(sidecar: Sidecar): string {
   const rows = sortedPages(sidecar).map(
     (p) =>
-      `| ${p.path} | ${fmtScore(p.score)} | ${p.band} | ${p.sealedBy ?? "—"} | ${p.gitHead.slice(0, 7)} |`,
+      `| ${pathCell(p.path)} | ${fmtScore(p.score)} | ${p.band} | ${p.sealedBy ?? "—"} | ${p.gitHead.slice(0, 7)} |`,
   );
   return [
     "# Wiki Trust",
@@ -625,6 +658,10 @@ export function renderFenceBlock(sidecar: Sidecar): string {
  * corrupt markers (begin-only, end-only, end-before-begin, duplicates) WITHOUT
  * touching anything — every byte outside the markers is preserved verbatim.
  * Pure: the CLI performs the actual fs write only after a successful splice.
+ *
+ * Known caveat (documented, accepted): marker detection is SUBSTRING-based.
+ * Marker text QUOTED inside a code block counts as a real marker — a file
+ * that only discusses the markers will be treated as fenced (or corrupt).
  */
 export function spliceFence(existing: string, block: string): string | null {
   const count = (haystack: string, needle: string) => haystack.split(needle).length - 1;
@@ -656,7 +693,9 @@ export function renderTrustDelta(before: Sidecar, after: Sidecar): string {
       lines.push(`- ${path}: added at ${fmtScore(a.score)} (${a.band})`);
     } else if (b && !a) {
       lines.push(`- ${path}: removed`);
-    } else if (b && a && (b.score !== a.score || b.band !== a.band)) {
+    } else if (b && a && (fmtScore(b.score) !== fmtScore(a.score) || b.band !== a.band)) {
+      // Compare RENDERED scores: a sub-0.0005 drift would otherwise emit a
+      // visually-no-op "0.550 -> 0.550 (ok -> ok)" line.
       lines.push(`- ${path}: ${fmtScore(b.score)} -> ${fmtScore(a.score)} (${b.band} -> ${a.band})`);
     }
   }

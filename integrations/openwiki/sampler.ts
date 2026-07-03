@@ -20,7 +20,7 @@
  * (which is what drives the "action" band).
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import type { PageState, SampleResult, Sidecar } from "./openwiki-adapter.ts";
@@ -44,6 +44,18 @@ function splitRef(ref: string): { filePart: string; symbol: string } {
 }
 
 /**
+ * Exact-segment mirror of extractSources' canonical-ref rule: a '..', '.' or
+ * '' segment marks a denormalized ref. Such refs must NEVER be resolved
+ * against the fs — join() normalizes them, so '../x' would read OUTSIDE the
+ * repo root and './x'/'x//y' would alias tree paths that can never match
+ * git's canonical changedFiles. Broken structurally, not missing.
+ */
+function isDenormalized(ref: string): boolean {
+  const segments = ref.split("/");
+  return segments.includes("..") || segments.includes(".") || segments.includes("");
+}
+
+/**
  * The default, production verifier: purely mechanical, at HEAD (the working
  * tree the CLI runs against). Missing file part -> broken AND names the file;
  * `#symbol` on an existing file -> substring grep of the file's content.
@@ -58,9 +70,16 @@ export class MechanicalVerifier implements ClaimVerifier {
   }
 
   verify(_pagePath: string, ref: string): { ok: boolean; evidence: string } {
+    if (isDenormalized(ref)) return { ok: false, evidence: `broken: denormalized ref ${ref}` };
     const { filePart, symbol } = splitRef(ref);
     const abs = join(this.repoRoot, filePart);
-    if (!existsSync(abs)) return { ok: false, evidence: `missing: ${filePart}` };
+    // One stat answers both questions: existsSync alone accepts DIRECTORIES
+    // (dir-with-extension refs, or an empty file part joining to the repo
+    // root) and readFileSync then dies with raw EISDIR, killing the whole
+    // page sample. Present-but-not-a-regular-file is broken, not missing.
+    const st = statSync(abs, { throwIfNoEntry: false });
+    if (!st) return { ok: false, evidence: `missing: ${filePart}` };
+    if (!st.isFile()) return { ok: false, evidence: `broken: ${ref} (not a regular file)` };
     if (symbol) {
       return readFileSync(abs, "utf8").includes(symbol)
         ? { ok: true, evidence: `ok: ${ref}` }
@@ -75,8 +94,16 @@ export class MechanicalVerifier implements ClaimVerifier {
  * without replacement. Deterministic under an injected `rand` (the CLI passes
  * a seeded PRNG for `--seed`); defaults to `Math.random`. Returns [] for an
  * empty sidecar or n <= 0; caps at the page count.
+ *
+ * Known caveat (caller contract, not validated): `rand` must return values in
+ * [0, 1) — out-of-domain values clamp the draw to the first/last candidate.
  */
 export function samplePages(sidecar: Sidecar, n: number, nowMs: number, rand: () => number = Math.random): string[] {
+  // Non-finite inputs previously degraded SILENTLY: NaN nowMs stripped the
+  // staleness weighting (NaN weights -> insertion-order picks) and NaN n
+  // returned [] — an empty sample that examined nothing. Fail loud instead.
+  if (!Number.isFinite(n)) throw new Error(`samplePages: n must be finite, got ${n}`);
+  if (!Number.isFinite(nowMs)) throw new Error(`samplePages: nowMs must be finite, got ${nowMs}`);
   const candidates = Object.values(sidecar.pages).map((p) => ({
     path: p.path,
     // +1 keeps brand-new pages drawable; Math.max(0, ...) clamps clock skew
@@ -116,7 +143,10 @@ export async function verifyPage(repoRoot: string, page: PageState, verifier?: C
   let anyMissing = false;
   const evidence: string[] = [];
   for (const ref of page.sources) {
-    if (!existsSync(join(repoRoot, splitRef(ref).filePart))) anyMissing = true;
+    // Denormalized refs are structurally broken, never "missing" — and the
+    // existence probe must not run on them (join() would resolve '../x'
+    // OUTSIDE the repo root).
+    if (!isDenormalized(ref) && !existsSync(join(repoRoot, splitRef(ref).filePart))) anyMissing = true;
     const res = await v.verify(page.path, ref);
     if (!res.ok) refsBroken += 1;
     evidence.push(res.evidence);

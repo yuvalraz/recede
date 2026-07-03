@@ -43,6 +43,7 @@ import {
   renderFenceBlock,
   spliceFence,
   renderTrustDelta,
+  type Band,
   type PageState,
   type SampleResult,
   type Sidecar,
@@ -825,6 +826,185 @@ test("renderTrustDelta lists score/band transitions, added and removed pages; un
   assert.match(runDelta, /openwiki\/b\.md: removed/);
   // Identical states: an explicit no-change line, not an empty string.
   assert.equal(renderTrustDelta(scOk, scOk), "No wiki trust changes.\n");
+});
+
+// ---------------------------------------------------------------------------
+// Phase-2 remediation: adversarial hunter/reviewer findings
+// ---------------------------------------------------------------------------
+
+test("CR-1: zero-ref sample check is INCONCLUSIVE conf 0 — SUCCESS seal, but less lane signal than a verified-clean sample", async () => {
+  // Measured bug: {refsChecked:0} passed at PASS@1, inflating the lane
+  // 0.000 -> 0.472 over 5 events with nothing examined.
+  const zeroRef: SampleResult[] = [
+    { page: "openwiki/none.md", refsChecked: 0, refsBroken: 0, anyMissing: false, evidence: [] },
+  ];
+  const zeroLedger = new MemoryLedger();
+  const { warrant: zeroW, after: zeroAfter } = await sealEventWarrant({
+    ledger: zeroLedger, policy: docPolicy(), generator: "openwiki@test",
+    event: { kind: "sample", runId: "r1", results: zeroRef }, intent: "wiki sample",
+    checks: sampleChecks(zeroRef), groundTruth: "mechanical-sample" });
+  assert.equal(zeroW.outcome?.result, "SUCCESS"); // evidence gap is NOT failure
+  assert.equal(zeroW.checks[0]?.verdict, "INCONCLUSIVE");
+  assert.equal(zeroW.checks[0]?.confidence, 0);
+  // The honest signal: a sample that examined nothing earns strictly less
+  // lane trust than one that verified a real ref.
+  const cleanRef: SampleResult[] = [
+    { page: "openwiki/a.md", refsChecked: 1, refsBroken: 0, anyMissing: false, evidence: ["ok: src/x.ts"] },
+  ];
+  const cleanLedger = new MemoryLedger();
+  const { after: cleanAfter } = await sealEventWarrant({
+    ledger: cleanLedger, policy: docPolicy(), generator: "openwiki@test",
+    event: { kind: "sample", runId: "r1", results: cleanRef }, intent: "wiki sample",
+    checks: sampleChecks(cleanRef), groundTruth: "mechanical-sample" });
+  assert.ok(zeroAfter.score < cleanAfter.score, "zero-evidence sample must not earn full VERIFY signal");
+});
+
+test("H-1: overallBand fails CLOSED on an unknown band string; all three valid bands still render", () => {
+  // Measured bug: BAND_SEVERITY["ACTION"] is undefined; undefined > 0 is
+  // false -> a corrupt band read as the HEALTHIEST state (ok fence copy).
+  const corrupt = structuredClone(scAction);
+  corrupt.pages["openwiki/b.md"].band = "ACTION" as Band;
+  assert.throws(() => overallBand(corrupt), /unknown band "ACTION" for openwiki\/b\.md/);
+  // Valid bands unaffected: worst-band semantics and fence rendering hold.
+  assert.equal(overallBand(scOk), "ok");
+  assert.equal(overallBand(scWarning), "warning");
+  assert.equal(overallBand(scAction), "action");
+  for (const sc of [scOk, scWarning, scAction]) assert.ok(renderFenceBlock(sc).startsWith(FENCE_BEGIN));
+});
+
+test("M-1: dir-as-file and empty-file-part refs count as broken (no raw EISDIR); the page sample completes", async () => {
+  // Measured bug: existsSync passes for directories; readFileSync then threw
+  // raw EISDIR and killed the whole page sample. An empty file part ('#sym')
+  // joins to the repo root itself — also a directory.
+  mkdirSync(join(tmpRoot, "src", "dir.ts"), { recursive: true });
+  const v = new MechanicalVerifier(tmpRoot);
+  const bareDir = await v.verify("openwiki/a.md", "src/dir.ts");
+  assert.equal(bareDir.ok, false);
+  assert.equal(bareDir.evidence, "broken: src/dir.ts (not a regular file)");
+  const dirSym = await v.verify("openwiki/a.md", "src/dir.ts#sym");
+  assert.equal(dirSym.ok, false);
+  assert.equal(dirSym.evidence, "broken: src/dir.ts#sym (not a regular file)");
+  const emptyPart = await v.verify("openwiki/a.md", "#sym");
+  assert.equal(emptyPart.ok, false);
+  // Sample completes: the aggregate carries the broken refs instead of crashing.
+  const res = await verifyPage(tmpRoot, pageState({ path: "openwiki/dir.md",
+    sources: ["src/dir.ts#sym", "#sym", "src/parser.ts"] }));
+  assert.equal(res.refsChecked, 3);
+  assert.equal(res.refsBroken, 2);
+  assert.equal(res.anyMissing, false); // present-but-not-a-file is broken, not missing
+});
+
+test("M-2: denormalized refs ('./x', '../x', 'x//y') are broken, never resolved against the fs — no reads outside repoRoot", async () => {
+  // Measured bug: join() normalizes './' and '../', so '../outside#symbol'
+  // verified ok:true by READING A FILE OUTSIDE THE REPO ROOT.
+  const outer = mkdtempSync(join(tmpdir(), "openwiki-m2-"));
+  const inner = join(outer, "repo");
+  mkdirSync(join(inner, "src"), { recursive: true });
+  writeFileSync(join(outer, "outside.ts"), "export const leakedSymbol = 1;\n");
+  writeFileSync(join(inner, "src", "in.ts"), "export const inSymbol = 1;\n");
+  const v = new MechanicalVerifier(inner);
+  // The probe: the outside file EXISTS and CONTAINS the symbol — only a
+  // no-fs-access reject can report it broken.
+  const escape = await v.verify("p.md", "../outside.ts#leakedSymbol");
+  assert.equal(escape.ok, false);
+  assert.equal(escape.evidence, "broken: denormalized ref ../outside.ts#leakedSymbol");
+  for (const ref of ["./src/in.ts", "src/./in.ts", "src//in.ts"]) {
+    const res = await v.verify("p.md", ref);
+    assert.equal(res.ok, false, `${ref} must be broken`);
+    assert.match(res.evidence, /denormalized ref/);
+  }
+  // Normalized ref to the same tree still verifies clean (exact-segment rule).
+  assert.equal((await v.verify("p.md", "src/in.ts#inSymbol")).ok, true);
+  // verifyPage: denormalized refs are broken-not-missing and skip the
+  // mechanical existence probe too (no fs access outside the root).
+  const res = await verifyPage(inner, pageState({ path: "openwiki/esc.md",
+    sources: ["../outside.ts#leakedSymbol", "../definitely-gone.ts", "src/in.ts"] }));
+  assert.equal(res.refsChecked, 3);
+  assert.equal(res.refsBroken, 2);
+  assert.equal(res.anyMissing, false);
+});
+
+test("M-3/M-4: samplePages throws on non-finite nowMs (silent weight-stripping) and non-finite n (silent empty sample)", () => {
+  // Measured: NaN nowMs -> NaN weights -> insertion-order picks (staleness
+  // weighting silently gone); NaN n -> silent [] (an empty sample downstream).
+  const sc = sidecarWith([
+    pageState({ path: "openwiki/a.md", lastEventMs: 0 }),
+    pageState({ path: "openwiki/b.md", lastEventMs: 10 }),
+  ]);
+  for (const bad of [Number.NaN, Infinity, -Infinity]) {
+    assert.throws(() => samplePages(sc, 1, bad, () => 0.5), /nowMs must be finite/);
+    assert.throws(() => samplePages(sc, bad, 0, () => 0.5), /n must be finite/);
+  }
+});
+
+test("M-4: sealEventWarrant rejects an empty-results sample before it reaches the ledger", async () => {
+  // Measured: results [] sealed SUCCESS with ZERO checks — lane credit for a
+  // sample that examined nothing.
+  const ledger = new MemoryLedger();
+  await assert.rejects(
+    sealEventWarrant({ ledger, policy: docPolicy(), generator: "openwiki@test",
+      event: { kind: "sample", runId: "r1", results: [] }, intent: "wiki sample",
+      checks: sampleChecks([]), groundTruth: "mechanical-sample" }),
+    /sample event r1: empty results/,
+  );
+  // The guard fires BEFORE the intent append: nothing hits the ledger.
+  assert.equal(ledger.warrantsFor("openwiki@test", DOC_MAP_TASK).length, 0);
+});
+
+test("L-1: renderers throw on non-finite scores instead of printing 'NaN'/'Infinity' into TRUST.md and the fence", () => {
+  // Measured: toFixed renders NaN verbatim -> "| x.md | NaN | ... |".
+  const corrupt = structuredClone(scOk);
+  corrupt.pages["openwiki/a.md"].score = Number.NaN;
+  assert.throws(() => renderTrustMd(corrupt), /non-finite score/);
+  assert.throws(() => renderTrustDelta(scOk, corrupt), /non-finite score/);
+  const inf = structuredClone(scWarning);
+  inf.pages["openwiki/a.md"].score = Infinity;
+  assert.throws(() => renderFenceBlock(inf), /non-finite score/);
+});
+
+test("L-2: renderTrustMd escapes '|' and flattens newlines in the path cell — one row, five cells", () => {
+  // Measured: a '|' in the path adds a phantom table column; a newline splits
+  // the row across two lines.
+  const weird = structuredClone(scOk);
+  const pipePath = "openwiki/a|b.md";
+  const nlPath = "openwiki/x\ny.md";
+  weird.pages[pipePath] = { ...weird.pages["openwiki/a.md"], path: pipePath };
+  weird.pages[nlPath] = { ...weird.pages["openwiki/a.md"], path: nlPath };
+  const md = renderTrustMd(weird);
+  const pipeRow = md.split("\n").find((l) => l.includes("a\\|b.md"));
+  assert.ok(pipeRow, "pipe must be escaped as \\| in the path cell");
+  // Exactly 6 unescaped '|' delimiters = 5 cells.
+  assert.equal(pipeRow.split("|").length - 1 - (pipeRow.match(/\\\|/g) ?? []).length, 6);
+  const nlRow = md.split("\n").find((l) => l.includes("x y.md"));
+  assert.ok(nlRow && nlRow.startsWith("| openwiki/x y.md |"), "newline must not split the row");
+});
+
+test("R-10: renderTrustDelta suppresses visually-no-op lines (rendered score equal AND band unchanged)", () => {
+  // Measured: a sub-0.0005 drift emitted "0.550 -> 0.550 (ok -> ok)".
+  const drift = structuredClone(scOk);
+  drift.pages["openwiki/a.md"].score += 0.0001; // both sides render as 0.550
+  assert.equal(renderTrustDelta(scOk, drift), "No wiki trust changes.\n");
+  // Same rendered score but a band change still lists (existing contract).
+  assert.match(renderTrustDelta(scOk, scAction), /openwiki\/b\.md: 0\.550 -> 0\.550 \(ok -> action\)/);
+  // A visible rendered-score change still lists.
+  assert.match(renderTrustDelta(scWarning, scOk), /openwiki\/a\.md: 0\.250 -> 0\.550/);
+});
+
+test("INVARIANT: no VERIFY check records PASS@1 when refsChecked is 0", async () => {
+  const mixed: SampleResult[] = [
+    { page: "openwiki/none.md", refsChecked: 0, refsBroken: 0, anyMissing: false, evidence: [] },
+    { page: "openwiki/a.md", refsChecked: 2, refsBroken: 0, anyMissing: false, evidence: [] },
+  ];
+  for (const spec of sampleChecks(mixed)) {
+    const res = await spec.run({ intent: "wiki sample", input: undefined, output: undefined });
+    if (res.name === "openwiki:sample:openwiki/none.md") {
+      assert.notEqual(res.verdict, "PASS", "zero-ref sample must never record PASS");
+      assert.equal(res.verdict, "INCONCLUSIVE");
+      assert.equal(res.confidence, 0);
+    } else {
+      assert.equal(res.verdict, "PASS"); // real refs keep the full signal
+    }
+  }
 });
 
 test("renderers are deterministic: pure functions of the sidecar, stable across calls and clones", () => {
