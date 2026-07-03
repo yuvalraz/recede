@@ -127,9 +127,9 @@ sidecar against a fresh ledger replay and exiting non-zero on divergence.
 
 ## The AGENTS.md fence contract
 
-An agent reading a repo should know how far to trust its wiki. `run`, `decay`,
-`sample`, and `inject` maintain a fenced block in `AGENTS.md` between two
-markers:
+An agent reading a repo should know how far to trust its wiki. Once an
+`AGENTS.md` fence exists, every trust-writing command (`run`, `decay`, `seal`,
+`sample`, `inject`) keeps it current between two markers:
 
 ```
 <!-- openwiki-trust:begin -->
@@ -143,8 +143,10 @@ against their cited sources before relying on them.
 The wrap edits **only** the bytes between the markers. Every byte outside them
 is preserved verbatim. The fence language downgrades by the wiki's worst band
 (`ok` / `warning` / `action`). If the markers are corrupt (missing one, doubled,
-or reversed), the wrap refuses and leaves the file untouched. `inject` without
-`--create` refuses to touch an `AGENTS.md` that has no fence yet.
+or reversed), the wrap refuses and leaves the file untouched. Creating a fence
+where none exists takes `run --inject` or `inject`; `inject` additionally needs
+`--create` to create a missing `AGENTS.md`. The other commands refresh an
+existing fence but never add one to a fenceless file.
 
 The wrap does **not** write trust into the wiki pages themselves: OpenWiki
 rewrites those on the next run. Trust rides in the sidecar, `TRUST.md`, and the
