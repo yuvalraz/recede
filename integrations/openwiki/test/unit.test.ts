@@ -36,6 +36,13 @@ import {
   sampleChecks,
   sealChecks,
   sealEventWarrant,
+  FENCE_BEGIN,
+  FENCE_END,
+  overallBand,
+  renderTrustMd,
+  renderFenceBlock,
+  spliceFence,
+  renderTrustDelta,
   type PageState,
   type SampleResult,
   type Sidecar,
@@ -692,4 +699,141 @@ test("samplePages caps at page count and returns [] for an empty sidecar", () =>
   assert.equal(picks.length, 2); // capped at page count
   assert.equal(new Set(picks).size, 2); // without replacement
   assert.deepEqual(samplePages(sc, 0, nowMs, () => 0.1), []);
+});
+
+// ---------------------------------------------------------------------------
+// Task 2.2: renderers + fence splice (Phase 2)
+// ---------------------------------------------------------------------------
+
+// Fold-produced fixtures: real shapes, one per overall band.
+const scWarning = foldEvent(emptySidecar("openwiki@test"), runEvent(), "w1", T0); // all pages at epsilon
+const scOk = foldEvent(
+  scWarning,
+  { kind: "seal", runId: "r2", pages: ["openwiki/a.md", "openwiki/b.md", "openwiki/c.md"], human: "yuval" },
+  "w2",
+  T1,
+);
+const scAction = foldEvent(
+  scOk,
+  {
+    kind: "sample", runId: "r3",
+    results: [{ page: "openwiki/b.md", refsChecked: 1, refsBroken: 1, anyMissing: true, evidence: ["missing: src/utils.ts"] }],
+  },
+  "w3",
+  T2,
+);
+
+test("overallBand: worst band present; ok when no pages", () => {
+  assert.equal(overallBand(emptySidecar("openwiki@test")), "ok");
+  assert.equal(overallBand(scWarning), "warning");
+  assert.equal(overallBand(scOk), "ok");
+  assert.equal(overallBand(scAction), "action");
+});
+
+test("renderTrustMd: one row per page (path, score, band, sealedBy, head) + band legend", () => {
+  const md = renderTrustMd(scOk);
+  const rows = md.split("\n").filter((l) => l.startsWith("| openwiki/"));
+  assert.equal(rows.length, 3);
+  const aRow = rows.find((r) => r.includes("openwiki/a.md"));
+  assert.ok(aRow, "row for openwiki/a.md");
+  assert.match(aRow, /0\.550/);
+  assert.match(aRow, /\bok\b/);
+  assert.match(aRow, /yuval/);
+  assert.match(aRow, /aaa/); // head
+  // Legend names all three bands.
+  assert.match(md, /\*\*ok\*\*/);
+  assert.match(md, /\*\*warning\*\*/);
+  assert.match(md, /\*\*action\*\*/);
+  // Unsealed pages render without a fabricated sealer.
+  const freshRow = renderTrustMd(scWarning).split("\n").find((l) => l.startsWith("| openwiki/a.md"));
+  assert.ok(freshRow && !freshRow.includes("yuval"));
+});
+
+test("fence block language downgrades by overall band (ok/warning/action variants)", () => {
+  for (const sc of [scOk, scWarning, scAction]) {
+    const block = renderFenceBlock(sc);
+    assert.ok(block.startsWith(FENCE_BEGIN), "block includes the begin marker");
+    assert.ok(block.endsWith(FENCE_END), "block includes the end marker");
+  }
+  assert.match(renderFenceBlock(scOk),
+    /Wiki trust is healthy\. Consult the wiki and `TRUST\.md` for per-page standing\./);
+  const warning = renderFenceBlock(scWarning);
+  assert.match(warning,
+    /Some wiki pages have degraded trust\. Verify flagged pages \(see `TRUST\.md`\) against their cited sources before relying on them\./);
+  assert.match(warning, /- openwiki\/a\.md \(warning, 0\.250\)/); // non-ok pages listed
+  const action = renderFenceBlock(scAction);
+  assert.match(action,
+    /Do NOT treat this wiki as ground truth\. Pages listed in `TRUST\.md` failed mechanical re-verification or decayed to floor; consult the source files directly\./);
+  assert.match(action, /- openwiki\/b\.md \(action, 0\.550\)/);
+  assert.ok(!action.includes("- openwiki/a.md"), "ok pages stay off the flagged list");
+  // Empty wiki: healthy variant.
+  assert.match(renderFenceBlock(emptySidecar("openwiki@test")), /Wiki trust is healthy/);
+});
+
+test("spliceFence replaces ONLY between markers; bytes outside are untouched", () => {
+  const prefix = "# Agents\n\nintro text the wrap must never touch\n\n";
+  const suffix = "\n\ntrailing text, also untouchable\n";
+  const existing = prefix + FENCE_BEGIN + "\nstale body\n" + FENCE_END + suffix;
+  const block = renderFenceBlock(scWarning);
+  const out = spliceFence(existing, block);
+  assert.equal(out, prefix + block + suffix);
+});
+
+test("spliceFence is idempotent: splice(splice(x, b), b) === splice(x, b)", () => {
+  const existing = "before\n" + FENCE_BEGIN + "\nold\n" + FENCE_END + "\nafter\n";
+  const block = renderFenceBlock(scAction);
+  const once = spliceFence(existing, block);
+  assert.ok(once);
+  assert.equal(spliceFence(once, block), once);
+});
+
+test("spliceFence returns null when no fence exists", () => {
+  assert.equal(spliceFence("# Agents\n\nno fence anywhere\n", renderFenceBlock(scOk)), null);
+});
+
+test("spliceFence throws on corrupt markers (begin-only, end-only, end-before-begin, duplicates)", () => {
+  const block = renderFenceBlock(scOk);
+  const corrupt = [
+    `x\n${FENCE_BEGIN}\nno end marker`,
+    `no begin marker\n${FENCE_END}\ny`,
+    `${FENCE_END}\nbody\n${FENCE_BEGIN}`,
+    `${FENCE_BEGIN}\n${FENCE_BEGIN}\nbody\n${FENCE_END}`,
+    `${FENCE_BEGIN}\nbody\n${FENCE_END}\n${FENCE_END}`,
+  ];
+  for (const existing of corrupt) {
+    assert.throws(() => spliceFence(existing, block), /corrupt openwiki-trust fence markers/);
+  }
+});
+
+test("renderTrustDelta lists score/band transitions, added and removed pages; unchanged pages omitted", () => {
+  const delta = renderTrustDelta(scWarning, scOk);
+  assert.match(delta, /openwiki\/a\.md: 0\.250 -> 0\.550 \(warning -> ok\)/);
+  // Band-only change (score untouched by a sample) still listed.
+  const sampleDelta = renderTrustDelta(scOk, scAction);
+  assert.match(sampleDelta, /openwiki\/b\.md: 0\.550 -> 0\.550 \(ok -> action\)/);
+  assert.ok(!sampleDelta.includes("openwiki/a.md"), "unchanged pages omitted");
+  // Added + removed pages.
+  const run2 = foldEvent(
+    scOk,
+    { kind: "run", runId: "r9", gitHead: "bbb", gitHeadSource: "last-update", planSnapshot: null,
+      pages: [{ path: "openwiki/d.md", sources: [], contentDigest: "d4" }], removed: ["openwiki/b.md"] },
+    "w9",
+    T3,
+  );
+  const runDelta = renderTrustDelta(scOk, run2);
+  assert.match(runDelta, /openwiki\/d\.md: added at 0\.250 \(warning\)/);
+  assert.match(runDelta, /openwiki\/b\.md: removed/);
+  // Identical states: an explicit no-change line, not an empty string.
+  assert.equal(renderTrustDelta(scOk, scOk), "No wiki trust changes.\n");
+});
+
+test("renderers are deterministic: pure functions of the sidecar, stable across calls and clones", () => {
+  assert.equal(renderTrustMd(scAction), renderTrustMd(structuredClone(scAction)));
+  assert.equal(renderFenceBlock(scAction), renderFenceBlock(structuredClone(scAction)));
+  assert.equal(
+    renderTrustDelta(scWarning, scAction),
+    renderTrustDelta(structuredClone(scWarning), structuredClone(scAction)),
+  );
+  // Repeated calls: byte-identical (no wall clock, no randomness).
+  assert.equal(renderTrustMd(scOk), renderTrustMd(scOk));
 });

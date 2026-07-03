@@ -542,3 +542,124 @@ export async function sealEventWarrant(opts: {
 
   return { warrant, before, after };
 }
+
+// ---------------------------------------------------------------------------
+// Renderers (PURE string functions — the CLI owns every fs write)
+// ---------------------------------------------------------------------------
+
+export const FENCE_BEGIN = "<!-- openwiki-trust:begin -->";
+export const FENCE_END = "<!-- openwiki-trust:end -->";
+
+/** Pages sorted by path: render order is stable regardless of fold order. */
+function sortedPages(sidecar: Sidecar): PageState[] {
+  return Object.values(sidecar.pages).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
+/** Fixed-width score rendering: deterministic and diff-friendly. */
+function fmtScore(score: number): string {
+  return score.toFixed(3);
+}
+
+/** The wiki's worst band; "ok" for an empty wiki (nothing to distrust). */
+export function overallBand(sidecar: Sidecar): Band {
+  let worst: Band = "ok";
+  for (const p of Object.values(sidecar.pages)) {
+    if (BAND_SEVERITY[p.band] > BAND_SEVERITY[worst]) worst = p.band;
+  }
+  return worst;
+}
+
+/** The per-page standing table written to `<repo>/TRUST.md` by the CLI. */
+export function renderTrustMd(sidecar: Sidecar): string {
+  const rows = sortedPages(sidecar).map(
+    (p) =>
+      `| ${p.path} | ${fmtScore(p.score)} | ${p.band} | ${p.sealedBy ?? "—"} | ${p.gitHead.slice(0, 7)} |`,
+  );
+  return [
+    "# Wiki Trust",
+    "",
+    `Generator: \`${sidecar.generator}\` · wiki HEAD: \`${sidecar.gitHead}\` · updated: ${sidecar.updated}`,
+    "",
+    "| Page | Score | Band | Sealed by | Head |",
+    "|------|-------|------|-----------|------|",
+    ...rows,
+    "",
+    "Bands: **ok** — consult freely · **warning** — verify against cited sources before relying · " +
+      "**action** — do not treat as ground truth; consult the source files directly.",
+    "",
+  ].join("\n");
+}
+
+// Exact fence copy per band — the gate posture manifests HERE (consumer side),
+// not in the mechanical recorder (see sealEventWarrant's posture note).
+const FENCE_LANGUAGE: Record<Band, string> = {
+  ok: "Wiki trust is healthy. Consult the wiki and `TRUST.md` for per-page standing.",
+  warning:
+    "Some wiki pages have degraded trust. Verify flagged pages (see `TRUST.md`) against their cited sources before relying on them.",
+  action:
+    "Do NOT treat this wiki as ground truth. Pages listed in `TRUST.md` failed mechanical re-verification or decayed to floor; consult the source files directly.",
+};
+
+/**
+ * The fenced AGENTS.md block, INCLUDING the marker lines. Language downgrades
+ * by the wiki's overall band; non-ok pages are listed under the warning and
+ * action variants. Ends exactly on FENCE_END (no trailing newline) — that is
+ * what makes spliceFence idempotent.
+ */
+export function renderFenceBlock(sidecar: Sidecar): string {
+  const band = overallBand(sidecar);
+  const lines = [FENCE_BEGIN, FENCE_LANGUAGE[band]];
+  if (band !== "ok") {
+    lines.push("");
+    for (const p of sortedPages(sidecar)) {
+      if (p.band !== "ok") lines.push(`- ${p.path} (${p.band}, ${fmtScore(p.score)})`);
+    }
+  }
+  lines.push(FENCE_END);
+  return lines.join("\n");
+}
+
+/**
+ * Replace the fenced block in an existing AGENTS.md. Returns the new content;
+ * null when NO fence exists (the caller decides whether to inject); throws on
+ * corrupt markers (begin-only, end-only, end-before-begin, duplicates) WITHOUT
+ * touching anything — every byte outside the markers is preserved verbatim.
+ * Pure: the CLI performs the actual fs write only after a successful splice.
+ */
+export function spliceFence(existing: string, block: string): string | null {
+  const count = (haystack: string, needle: string) => haystack.split(needle).length - 1;
+  const begins = count(existing, FENCE_BEGIN);
+  const ends = count(existing, FENCE_END);
+  if (begins === 0 && ends === 0) return null;
+  if (begins !== 1 || ends !== 1) {
+    throw new Error(
+      `corrupt openwiki-trust fence markers: found ${begins} begin / ${ends} end (expected exactly 1 of each)`,
+    );
+  }
+  const b = existing.indexOf(FENCE_BEGIN);
+  const e = existing.indexOf(FENCE_END);
+  if (e < b) throw new Error("corrupt openwiki-trust fence markers: end marker precedes begin marker");
+  return existing.slice(0, b) + block + existing.slice(e + FENCE_END.length);
+}
+
+/**
+ * Markdown fragment (PR bodies / stdout) listing every page whose score or
+ * band changed between two sidecar states, plus pages added or removed.
+ */
+export function renderTrustDelta(before: Sidecar, after: Sidecar): string {
+  const paths = [...new Set([...Object.keys(before.pages), ...Object.keys(after.pages)])].sort();
+  const lines: string[] = [];
+  for (const path of paths) {
+    const b = before.pages[path];
+    const a = after.pages[path];
+    if (!b && a) {
+      lines.push(`- ${path}: added at ${fmtScore(a.score)} (${a.band})`);
+    } else if (b && !a) {
+      lines.push(`- ${path}: removed`);
+    } else if (b && a && (b.score !== a.score || b.band !== a.band)) {
+      lines.push(`- ${path}: ${fmtScore(b.score)} -> ${fmtScore(a.score)} (${b.band} -> ${a.band})`);
+    }
+  }
+  if (lines.length === 0) return "No wiki trust changes.\n";
+  return ["### Wiki trust delta", "", ...lines, ""].join("\n");
+}
