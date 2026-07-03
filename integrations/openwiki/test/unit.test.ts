@@ -49,7 +49,7 @@ import {
   type Sidecar,
   type WikiEvent,
 } from "../openwiki-adapter.ts";
-import { MemoryLedger, coldStart, open, type Warrant } from "../../../reference/ts/src/index.ts";
+import { MemoryLedger, coldStart, open, gate, RISK_ORDER, type Warrant } from "../../../reference/ts/src/index.ts";
 import { MechanicalVerifier, samplePages, verifyPage, type ClaimVerifier } from "../sampler.ts";
 import { mulberry32, planFileName } from "../cli.ts";
 
@@ -381,7 +381,7 @@ test("PROPERTY: foldWarrants over the ledger == incremental foldEvent chain (dee
   ];
   const checksFor = (ev: WikiEvent) =>
     ev.kind === "run" ? cleanRunChecks()
-      : ev.kind === "decay" ? decayChecks({ changedFiles: 1, affectedPages: 2 })
+      : ev.kind === "decay" ? decayChecks()
       : ev.kind === "seal" ? sealChecks("yuval")
       : sampleChecks(ev.results);
   let incremental = emptySidecar(gen);
@@ -476,7 +476,7 @@ test("sealEventWarrant rejects a decay event with non-finite nowMs before it rea
     await assert.rejects(
       sealEventWarrant({ ledger, policy: docPolicy(), generator: "openwiki@test",
         event: mk(bad), intent: "wiki decay",
-        checks: decayChecks({ changedFiles: 0, affectedPages: 0 }), groundTruth: "git-diff" }),
+        checks: decayChecks(), groundTruth: "git-diff" }),
       /nowMs must be finite/,
     );
   }
@@ -864,6 +864,66 @@ test("CR-1: zero-ref sample check is INCONCLUSIVE conf 0 — SUCCESS seal, but l
     event: { kind: "sample", runId: "r1", results: cleanRef }, intent: "wiki sample",
     checks: sampleChecks(cleanRef), groundTruth: "mechanical-sample" });
   assert.ok(zeroAfter.score < cleanAfter.score, "zero-evidence sample must not earn full VERIFY signal");
+});
+
+// ---------------------------------------------------------------------------
+// Phase-3 remediation: decay is bookkeeping, not earned trust (CRITICAL)
+// ---------------------------------------------------------------------------
+
+/** Seed a lane with one clean run so it has real trust to (fail to) inflate. */
+async function seededLane(gen = "openwiki@test"): Promise<MemoryLedger> {
+  const ledger = new MemoryLedger();
+  await sealEventWarrant({ ledger, policy: docPolicy(), generator: gen,
+    event: runEvent(), intent: "wiki run", checks: cleanRunChecks(), groundTruth: "openwiki-artifacts" });
+  return ledger;
+}
+
+test("CR-DECAY-1: decayChecks seals a decay as lane-NEUTRAL bookkeeping — no VERIFY checks (the PASS@1 predicate inflated the lane)", () => {
+  // Measured bug: the old predicate `changedFiles >= 0 && affectedPages >= 0`
+  // is ALWAYS true -> PASS@1 -> SUCCESS -> full +1.0 lane signal on EVERY decay,
+  // inflating the generator lane with zero real work. Decay must carry no
+  // verify claim: the world changed underneath the wiki, the generator verified
+  // nothing.
+  assert.deepEqual(decayChecks(), [], "a decay warrant seals with no verify checks");
+});
+
+test("CR-DECAY-2: an empty-diff decay moves the lane by EXACTLY 0.000 and leaves gate posture byte-identical", async () => {
+  const gen = "openwiki@test";
+  const ledger = await seededLane(gen);
+  const before = ledger.getTrust(gen, DOC_MAP_TASK)!;
+  assert.ok(before.score > 0, "the seeded lane must carry real trust to (not) inflate");
+  // A pure-bookkeeping decay: nothing changed under the wiki.
+  const { after } = await sealEventWarrant({ ledger, policy: docPolicy(), generator: gen,
+    event: { kind: "decay", runId: "d1", fromHead: "aaa", toHead: "bbb", changedFiles: [], nowMs: Date.parse(T1) },
+    intent: "wiki decay", checks: decayChecks(), groundTruth: "git-diff" });
+  assert.equal(after.score, before.score, "an empty decay must move the lane by 0.000 (bookkeeping is lane-neutral)");
+  const policy = docPolicy();
+  for (const risk of RISK_ORDER) {
+    assert.equal(
+      gate(after, risk, policy).autonomous,
+      gate(before, risk, policy).autonomous,
+      `gate posture for ${risk} must be byte-identical across an empty decay`,
+    );
+  }
+});
+
+test("CR-DECAY-3: 20 successive empty decays never flip a gate risk class from checkpoint to autonomous", async () => {
+  // The hunter's inflation probe: 20 empty-diff decays flipped the lane
+  // T0/0.120 -> T2/0.932 and reversible.low from checkpoint(full) -> AUTONOMOUS.
+  const gen = "openwiki@test";
+  const ledger = await seededLane(gen);
+  const policy = docPolicy();
+  const baseline = ledger.getTrust(gen, DOC_MAP_TASK)!;
+  const posture0 = RISK_ORDER.map((r) => gate(baseline, r, policy).autonomous);
+  let after = baseline;
+  for (let i = 0; i < 20; i++) {
+    ({ after } = await sealEventWarrant({ ledger, policy, generator: gen,
+      event: { kind: "decay", runId: `d${i}`, fromHead: "aaa", toHead: "bbb", changedFiles: [], nowMs: Date.parse(T1) + i },
+      intent: "wiki decay", checks: decayChecks(), groundTruth: "git-diff" }));
+  }
+  assert.equal(after.score, baseline.score, "20 empty decays leave the lane score unchanged");
+  const posture20 = RISK_ORDER.map((r) => gate(after, r, policy).autonomous);
+  assert.deepEqual(posture20, posture0, "20 empty decays leave every gate posture unchanged (no checkpoint->autonomous flip)");
 });
 
 test("H-1: overallBand fails CLOSED on an unknown band string; all three valid bands still render", () => {

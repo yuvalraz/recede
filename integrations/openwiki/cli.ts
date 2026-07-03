@@ -9,9 +9,10 @@
  * openwiki-trust — a thin CLI that wraps an OpenWiki generator run under
  * Recede. It owns ALL process/fs/git I/O; the adapter (openwiki-adapter.ts)
  * stays a pure mapping core and the sampler (sampler.ts) does the mechanical
- * re-verification. Zero runtime dependencies; Node >= 22.6 (native type
- * stripping). The ledger path is ALWAYS caller-supplied — nothing is ever
- * written to a default location.
+ * re-verification. Zero runtime dependencies; Node >= 22.18 (native type
+ * stripping AND the `import.meta.main` guard below — silently a no-op on
+ * 22.6-22.17, so the run-if-main guard would never fire there). The ledger path
+ * is ALWAYS caller-supplied — nothing is ever written to a default location.
  *
  *   node cli.ts run    --ledger <path> [--dir .] [--wiki openwiki] [--actor openwiki] [--inject] [-- <cmd...>]
  *   node cli.ts decay  --ledger <path> [--dir .] [--wiki openwiki] [--actor openwiki]
@@ -36,6 +37,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   writeFileSync,
   watch,
 } from "node:fs";
@@ -184,7 +186,14 @@ function serializeSidecar(sidecar: Sidecar): string {
 
 function writeSidecar(wikiDir: string, sidecar: Sidecar): void {
   mkdirSync(trustDir(wikiDir), { recursive: true });
-  writeFileSync(statePath(wikiDir), serializeSidecar(sidecar));
+  // ponytail: tmp-write + rename makes each state.json update atomic — a
+  // reader (status/replay) never sees a half-written/torn sidecar. This is NOT
+  // concurrency safety: the single-runner ceiling still holds (last-writer-wins;
+  // the upgrade path is the O_EXCL .trust/lock file noted at the top).
+  const target = statePath(wikiDir);
+  const tmp = `${target}.tmp`;
+  writeFileSync(tmp, serializeSidecar(sidecar));
+  renameSync(tmp, target);
 }
 
 /**
@@ -215,7 +224,22 @@ function writeFenceToAgents(repoRoot: string, sidecar: Sidecar, create: boolean)
 function writeArtifacts(repoRoot: string, wikiDir: string, sidecar: Sidecar, injectFence: boolean): void {
   writeSidecar(wikiDir, sidecar);
   writeFileSync(join(repoRoot, "TRUST.md"), renderTrustMd(sidecar));
-  writeFenceToAgents(repoRoot, sidecar, injectFence);
+  // By the time we touch AGENTS.md the trust event is ALREADY sealed and
+  // state.json + TRUST.md are written. A fence-write failure (AGENTS.md is a
+  // directory/unwritable -> EISDIR/EACCES, or corrupt markers) must NOT surface
+  // as a raw error that makes the operator think nothing happened and re-run
+  // `run` (which would seal a SECOND warrant). Warn precisely and exit clean:
+  // the durable trust record stands; only the optional fence is stale.
+  try {
+    writeFenceToAgents(repoRoot, sidecar, injectFence);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(
+      `warning: trust event sealed and state.json + TRUST.md written, but the ` +
+        `AGENTS.md fence could not be updated (${reason}). Fix AGENTS.md, then re-run ` +
+        `\`openwiki-trust inject\` — do NOT re-run \`run\`, which would seal a second warrant.`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -291,8 +315,12 @@ async function cmdRun(rest: string[]): Promise<void> {
   const { ledgerPath, repoRoot, wiki, wikiDir, actor } = resolveCommon(v);
   const [childCmd, ...childArgs] = childArgv.length ? childArgv : ["openwiki"];
 
-  // Pre-create the watch dir BEFORE spawning; the watcher needs it to exist.
-  mkdirSync(plansDir(wikiDir), { recursive: true });
+  // The watcher needs wikiDir to exist BEFORE the child writes into it (to
+  // catch the ephemeral _plan.md). Create ONLY wikiDir here — NOT the .trust/
+  // sidecar scaffold: a failed run seals no warrant and writes no trust state,
+  // so it must not leave a .trust/ directory behind (the plans dir is created
+  // post-seal, where the snapshot is actually written).
+  mkdirSync(wikiDir, { recursive: true });
 
   // Watch for the ephemeral _plan.md; keep the LATEST content we manage to read
   // before OpenWiki deletes it. Read races are ignored (keep-latest semantics).
@@ -308,7 +336,9 @@ async function cmdRun(rest: string[]): Promise<void> {
 
   // Spawn the child. A missing binary emits an 'error' event (ENOENT) with NO
   // exit code — a distinct path from a child that runs and exits non-zero.
-  // Both must seal NOTHING and mutate NOTHING.
+  // Both seal NO warrant and write NO trust state (the generator's own partial
+  // output under wikiDir is its business, not the wrap's — so we claim only
+  // what the wrap controls, never a blanket "nothing mutated").
   const childCode = await new Promise<number>((resolvePromise) => {
     const child = spawn(childCmd, childArgs, { cwd: repoRoot, stdio: "inherit" });
     child.on("error", (err) => {
@@ -317,17 +347,17 @@ async function cmdRun(rest: string[]): Promise<void> {
       if (e.code === "ENOENT") {
         fail(
           `could not spawn '${childCmd}': not found. Install OpenWiki, or pass '-- <cmd>' ` +
-            `pointing at its binary. No warrant sealed, nothing mutated.`,
+            `pointing at its binary. No warrant sealed; no trust state written.`,
         );
       }
-      fail(`failed to spawn '${childCmd}': ${e.message}. No warrant sealed, nothing mutated.`);
+      fail(`failed to spawn '${childCmd}': ${e.message}. No warrant sealed; no trust state written.`);
     });
     child.on("close", (code) => resolvePromise(code ?? 0));
   });
   watcher.close();
 
   if (childCode !== 0) {
-    console.error(`child '${childCmd}' exited ${childCode} — no warrant sealed, nothing mutated.`);
+    console.error(`child '${childCmd}' exited ${childCode} — no warrant sealed; no trust state written.`);
     process.exit(childCode);
   }
 
@@ -336,13 +366,16 @@ async function cmdRun(rest: string[]): Promise<void> {
   const gitHead = fromLastUpdate ?? gitHeadOrFail(repoRoot, "run");
   const gitHeadSource: "last-update" | "degraded-head" = fromLastUpdate ? "last-update" : "degraded-head";
 
-  // Materialize the captured plan snapshot (if any) inside the write boundary.
-  let planSnapshot: string | null = null;
-  if (planContent !== null) {
-    const rel = join(wiki, ".trust", "plans", planFileName(new Date().toISOString()) + ".md");
-    writeFileSync(join(repoRoot, rel), planContent);
-    planSnapshot = rel;
-  }
+  // One wall-clock read for the whole run: it is BOTH the warrant's ts (via
+  // now() below) AND the plan-snapshot filename, so the snapshot name DERIVES
+  // from the warrant ts — no second, drifting clock read.
+  const runTs = new Date().toISOString();
+
+  // The plan-snapshot PATH is decided now (it rides in the sealed event), but
+  // the FILE is written only AFTER the seal succeeds — so a seal throw leaves
+  // no orphan snapshot on disk.
+  const planSnapshot: string | null =
+    planContent !== null ? join(wiki, ".trust", "plans", planFileName(runTs) + ".md") : null;
 
   const current = loadSidecar(wikiDir) ?? emptySidecar(actor);
   const diskPages = scanPages(wikiDir, repoRoot);
@@ -377,7 +410,18 @@ async function cmdRun(rest: string[]): Promise<void> {
     intent: `openwiki run @ ${gitHead.slice(0, 7)}`,
     checks,
     groundTruth: "openwiki-artifacts",
+    now: () => runTs, // warrant.intent.ts === runTs, so the snapshot name derives from it
   });
+
+  // Post-seal: materialize the plan snapshot INSIDE the write boundary now that
+  // the warrant stands. The .trust/plans dir is created HERE (not before the
+  // spawn) so a failed run leaves no .trust/ scaffold; the filename is
+  // planFileName(warrant.intent.ts).
+  if (planContent !== null && planSnapshot !== null) {
+    mkdirSync(plansDir(wikiDir), { recursive: true });
+    writeFileSync(join(repoRoot, planSnapshot), planContent);
+  }
+
   const next = foldEvent(current, event, warrant.intent.id, warrant.intent.ts);
   writeArtifacts(repoRoot, wikiDir, next, v.inject === true);
   console.log(renderTrustDelta(current, next));
@@ -393,28 +437,37 @@ async function cmdDecay(rest: string[]): Promise<void> {
   const current = loadSidecar(wikiDir);
   if (!current) fail("no sidecar state — run `openwiki-trust run` (or `replay --write`) first");
 
+  // Two distinct git failures, kept distinct (the old single catch labelled a
+  // stale-revision error "not a repo"): rev-parse HEAD proves we ARE in a git
+  // repo; only after that can a `<fromHead>..HEAD` diff failure be attributed to
+  // an unknown/GC'd revision (a sidecar gitHead left stale by force-push/rebase).
   let toHead: string;
-  let changedFiles: string[];
   try {
     toHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
+  } catch (err) {
+    fail(
+      `decay cannot read HEAD: git unavailable or not a repo ` +
+        `(${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+  let changedFiles: string[];
+  try {
     const diff = execFileSync("git", ["diff", "--name-only", `${current.gitHead}..HEAD`], {
       cwd: repoRoot,
       encoding: "utf8",
     });
     changedFiles = diff.split("\n").map((l) => l.trim()).filter(Boolean);
   } catch (err) {
+    // We ARE in a repo (rev-parse HEAD succeeded), so a diff failure means the
+    // sidecar's fromHead is unknown to this repo — stale after a force-push,
+    // rebase, or GC. Rebuild the cursor rather than blaming the repo.
     fail(
-      `decay cannot attribute changes: git unavailable or not a repo ` +
+      `decay cannot diff from the sidecar's recorded head ${current.gitHead.slice(0, 12)}: ` +
+        `unknown revision — the sidecar is stale (force-push / rebase / GC?). ` +
+        `Re-run after \`git fetch\`, or rebuild the sidecar with \`openwiki-trust replay --write\`. ` +
         `(${err instanceof Error ? err.message : String(err)})`,
     );
   }
-
-  const changed = new Set(changedFiles);
-  const affected = Object.values(current.pages).filter((p) => {
-    const match = p.sources.some((s) => changed.has(s.split("#", 1)[0]));
-    const sourceless = p.sources.length === 0 && changedFiles.length > 0;
-    return match || sourceless;
-  }).length;
 
   const event: WikiEvent = {
     kind: "decay",
@@ -424,7 +477,8 @@ async function cmdDecay(rest: string[]): Promise<void> {
     changedFiles,
     nowMs: Date.now(),
   };
-  const checks = decayChecks({ changedFiles: changedFiles.length, affectedPages: affected });
+  // Decay is lane-neutral bookkeeping: no verify checks (see decayChecks).
+  const checks = decayChecks();
   const { warrant } = await sealEventWarrant({
     ledger: new FileLedger(ledgerPath),
     policy: docPolicy(),
@@ -606,14 +660,25 @@ function cmdInject(rest: string[]): void {
     strict: true,
     options: { ...COMMON_OPTS, create: { type: "boolean" } },
   });
-  const { repoRoot, wikiDir } = resolveCommon(v);
+  // inject only READS the sidecar and WRITES the AGENTS.md fence — it never
+  // opens the ledger, so --ledger is NOT required here (it stays an accepted
+  // no-op flag via COMMON_OPTS for invocation symmetry). Resolve dirs inline
+  // rather than through resolveCommon, which would demand --ledger.
+  const repoRoot = resolve(v.dir ?? ".");
+  const wikiDir = join(repoRoot, v.wiki ?? "openwiki");
   const current = loadSidecar(wikiDir);
   if (!current) fail("no sidecar state — run `openwiki-trust run` first");
   const agentsPath = join(repoRoot, "AGENTS.md");
   if (!existsSync(agentsPath) && v.create !== true) {
     fail("AGENTS.md not found — pass --create to create it with the trust fence");
   }
-  writeFenceToAgents(repoRoot, current, true); // file exists or --create given: create/refresh
+  try {
+    writeFenceToAgents(repoRoot, current, true); // file exists or --create given: create/refresh
+  } catch (err) {
+    // A directory/unwritable AGENTS.md or corrupt markers must fail with a clear
+    // message, never a raw EISDIR/EACCES stack.
+    fail(`could not write the AGENTS.md fence (${err instanceof Error ? err.message : String(err)}) — fix AGENTS.md and retry`);
+  }
   console.log(`fence written to ${agentsPath}`);
 }
 

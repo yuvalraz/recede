@@ -25,6 +25,7 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -45,12 +46,13 @@ import {
   TRUST_CONSTANTS as C,
   type Sidecar,
 } from "./openwiki-adapter.ts";
+import { planFileName } from "./cli.ts";
 
 const CLI = join(import.meta.dirname, "cli.ts");
 const FIXTURE = join(import.meta.dirname, "test", "fixtures", "fake-openwiki.ts");
 const ACTOR = "openwiki"; // the CLI's default generator
 
-const EXPECTED_ASSERTIONS = 35;
+const EXPECTED_ASSERTIONS = 52;
 let assertions = 0;
 function assert(cond: boolean, msg: string): void {
   assertions += 1;
@@ -151,7 +153,14 @@ assert(
   "a fresh epsilon page bands 'warning' (verify against sources)",
 );
 const planFiles = readdirSync(join(repo, "openwiki", ".trust", "plans"));
-assert(planFiles.length >= 1, "the ephemeral _plan.md was snapshotted before deletion");
+assert(planFiles.length === 1, "exactly one plan snapshot exists (no orphan from a pre-seal write)");
+// The snapshot filename DERIVES from the run warrant's ts (not a second, drifting
+// wall-clock read), and is written only post-seal — so a seal throw leaves no orphan.
+const runWarrant = warrantsOf(ledger).find((w) => eventOf(w)?.kind === "run");
+assert(
+  !!runWarrant && planFiles[0] === planFileName(runWarrant.intent.ts) + ".md",
+  "the plan snapshot filename derives from the run warrant's ts",
+);
 const agentsAfterRun = readFileSync(join(repo, "AGENTS.md"), "utf8");
 assert(agentsAfterRun.split(FENCE_BEGIN).length - 1 === 1, "AGENTS.md has exactly one trust fence");
 console.log("\n[2] run    -> 3 pages @ e=0.25 (warning); plan snapshotted; fence injected");
@@ -239,6 +248,20 @@ rmSync(copy);
 console.log("[7] replay -> state.json rebuilt byte-identically from warrants (state was deleted)");
 
 // ---------------------------------------------------------------------------
+// [7b] status + bare replay: the read surfaces the plan claimed (integrity
+//      check @ this beat) but never exercised. status prints the per-page table
+//      and the SIDECAR REPLAY integrity line; bare replay reports MATCH.
+// ---------------------------------------------------------------------------
+const statusRes = cli(["status", "--ledger", ledger, "--dir", repo], repo);
+assert(statusRes.code === 0, `status exits 0 (got ${statusRes.code}: ${statusRes.stderr})`);
+assert(/SIDECAR REPLAY: PASS/.test(statusRes.stdout), "status prints the SIDECAR REPLAY integrity line (PASS)");
+assert(/openwiki\/parser\.md/.test(statusRes.stdout), "status prints a per-page table row");
+const replayCheck = cli(["replay", "--ledger", ledger, "--dir", repo], repo);
+assert(replayCheck.code === 0, `bare replay exits 0 when the sidecar matches (got ${replayCheck.code})`);
+assert(/\bMATCH\b/.test(replayCheck.stdout), "bare replay reports MATCH against the on-disk sidecar");
+console.log("[7b] status -> SIDECAR REPLAY: PASS + per-page table; bare replay -> MATCH");
+
+// ---------------------------------------------------------------------------
 // [8] fence idempotence: inject twice, AGENTS.md is byte-identical.
 // ---------------------------------------------------------------------------
 cli(["inject", "--ledger", ledger, "--dir", repo], repo);
@@ -246,7 +269,11 @@ const agentsOnce = readFileSync(join(repo, "AGENTS.md"), "utf8");
 cli(["inject", "--ledger", ledger, "--dir", repo], repo);
 const agentsTwice = readFileSync(join(repo, "AGENTS.md"), "utf8");
 assert(agentsOnce === agentsTwice, "inject is idempotent — a second run does not change AGENTS.md");
-console.log("[8] inject -> idempotent (second run leaves AGENTS.md byte-identical)");
+// inject reads the sidecar + writes the fence only; it never opens the ledger,
+// so it must work WITHOUT --ledger.
+const injectNoLedger = cli(["inject", "--dir", repo], repo);
+assert(injectNoLedger.code === 0, `inject works without --ledger (got ${injectNoLedger.code}: ${injectNoLedger.stderr})`);
+console.log("[8] inject -> idempotent; works without --ledger (never opens the ledger)");
 
 // ---------------------------------------------------------------------------
 // [9] error paths: failed child seals nothing; --no-plan is an honest gap;
@@ -261,6 +288,10 @@ const failRes = cli(
 );
 assert(failRes.code === 3, `a failed child passes through its exit code (got ${failRes.code})`);
 assert(warrantsOf(failRepo.ledger).length === before9a, "a failed run seals NO warrant");
+assert(
+  !existsSync(join(failRepo.repo, "openwiki", ".trust")),
+  "a failed run leaves NO .trust scaffold (the 'nothing mutated' claim is now honest)",
+);
 
 // [9b] no _plan.md -> run succeeds; the plan snapshot is an honest 'absent' gap.
 const noPlanRepo = scaffoldRepo();
@@ -304,12 +335,65 @@ const enoentRes = cli(
 assert(enoentRes.code !== 0, `a missing generator binary fails fast (got exit ${enoentRes.code})`);
 assert(/not found|install/i.test(enoentRes.stderr), "the ENOENT failure carries an install hint");
 assert(warrantsOf(enoentRepo.ledger).length === before9d, "a missing-binary run seals NO warrant");
+assert(
+  !existsSync(join(enoentRepo.repo, "openwiki", ".trust")),
+  "a missing-binary run leaves NO .trust scaffold",
+);
 console.log(
   "[9] errors -> failed child + missing-binary(ENOENT) seal nothing; --no-plan honest-gap; --no-last-update degraded-head",
 );
 
+// ---------------------------------------------------------------------------
+// [10] stale sidecar head: after a force-push/rebase/GC the recorded gitHead is
+//      unknown to the repo. decay must distinguish that from "not a repo" and
+//      point at the recovery path — not blame the repo.
+// ---------------------------------------------------------------------------
+const staleRepo = scaffoldRepo();
+cli(
+  ["run", "--ledger", staleRepo.ledger, "--dir", staleRepo.repo, "--", "node", FIXTURE, "openwiki", "--head", staleRepo.head],
+  staleRepo.repo,
+);
+const staleStatePath = join(staleRepo.repo, "openwiki", ".trust", "state.json");
+const staleSc = JSON.parse(readFileSync(staleStatePath, "utf8")) as Sidecar;
+staleSc.gitHead = "0123456789abcdef0123456789abcdef01234567"; // valid-format, unknown to the repo
+writeFileSync(staleStatePath, JSON.stringify(staleSc, null, 2) + "\n");
+const staleDecay = cli(["decay", "--ledger", staleRepo.ledger, "--dir", staleRepo.repo], staleRepo.repo);
+assert(staleDecay.code !== 0, `decay on a stale sidecar head fails (got ${staleDecay.code})`);
+assert(
+  /unknown revision|stale/i.test(staleDecay.stderr),
+  "a stale head is reported as an unknown revision, not 'not a repo'",
+);
+assert(
+  /replay --write|git fetch/i.test(staleDecay.stderr),
+  "the stale-head error points at the recovery path (replay --write / git fetch)",
+);
+console.log("[10] stale-head decay -> 'unknown revision' + recovery hint (not conflated with not-a-repo)");
+
+// ---------------------------------------------------------------------------
+// [11] unwritable AGENTS.md (a directory): the fence write fails AFTER the
+//      warrant is sealed and state.json/TRUST.md written. The trust event must
+//      stand, the failure must be reported clearly (no raw stack), and the
+//      operator must be told to re-run `inject`, not `run` (which double-seals).
+// ---------------------------------------------------------------------------
+const badAgentsRepo = scaffoldRepo();
+rmSync(join(badAgentsRepo.repo, "AGENTS.md"));
+mkdirSync(join(badAgentsRepo.repo, "AGENTS.md")); // AGENTS.md is now a DIRECTORY -> EISDIR on read
+const badAgentsRes = cli(
+  ["run", "--ledger", badAgentsRepo.ledger, "--dir", badAgentsRepo.repo, "--inject", "--", "node", FIXTURE, "openwiki", "--head", badAgentsRepo.head],
+  badAgentsRepo.repo,
+);
+assert(badAgentsRes.code === 0, `a bad AGENTS.md does NOT fail the run — trust is sealed (got ${badAgentsRes.code}: ${badAgentsRes.stderr})`);
+assert(/fence could not be updated/i.test(badAgentsRes.stderr), "the fence failure is reported clearly (not a raw EISDIR stack)");
+assert(/re-run .*inject/i.test(badAgentsRes.stderr), "the message tells the operator to re-run inject, not run");
+assert(warrantsOf(badAgentsRepo.ledger).length === 1, "the run warrant is sealed despite the fence failure");
+assert(
+  existsSync(join(badAgentsRepo.repo, "openwiki", ".trust", "state.json")),
+  "state.json is written despite the fence failure (the operator is not misled into re-running run)",
+);
+console.log("[11] bad AGENTS.md -> warrant+sidecar intact; clear fence-failure message; re-run inject (not run)");
+
 // Cleanup the throwaway repos (best-effort).
-for (const dir of [repo, failRepo.repo, noPlanRepo.repo, degradedRepo.repo, enoentRepo.repo]) {
+for (const dir of [repo, failRepo.repo, noPlanRepo.repo, degradedRepo.repo, enoentRepo.repo, staleRepo.repo, badAgentsRepo.repo]) {
   try {
     rmSync(dir, { recursive: true, force: true });
   } catch {

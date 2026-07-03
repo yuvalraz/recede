@@ -396,14 +396,28 @@ export function runChecks(sig: {
   ];
 }
 
-/** Checks for a `decay` event: mechanical recording; evidence rides in the name. */
-export function decayChecks(sig: { changedFiles: number; affectedPages: number }): CheckSpec[] {
-  return [
-    check.verify(
-      `openwiki:decay:changed=${sig.changedFiles}:affected=${sig.affectedPages}`,
-      () => sig.changedFiles >= 0 && sig.affectedPages >= 0,
-    ),
-  ];
+/**
+ * Checks for a `decay` event: NONE. Decay is lane-NEUTRAL bookkeeping, not a
+ * verification of the generator's work — the code moved UNDERNEATH the wiki and
+ * the generator verified nothing, so a decay warrant carries no verify claim.
+ *
+ * An empty check set is what makes decay lane-neutral: the reference weights a
+ * SUCCESS outcome's raw signal by MEAN check confidence (weighting.ts), and a
+ * checkless warrant has mean confidence 0, so it moves the lane score by EXACTLY
+ * 0.000. foldEvent still applies the real per-page time/diff decay — only the
+ * generator-lane CHECK is corrected.
+ *
+ * The old predicate here (`changedFiles >= 0 && affectedPages >= 0`) was ALWAYS
+ * true -> PASS@1 -> SUCCESS -> full +1.0 lane signal on EVERY decay. Measured:
+ * 20 empty-diff decays inflated the lane T0/0.120 -> T2/0.932 and flipped
+ * reversible.low from checkpoint(full) -> AUTONOMOUS with zero real work —
+ * inverting decay's purpose (bookkeeping-as-earned-trust, the same
+ * trust-inflation class as vacuous evidence). The decay's evidence (head range,
+ * changed-file count) lives in the warrant's intent proposed_action + the event
+ * payload, not in a fabricated PASS.
+ */
+export function decayChecks(): CheckSpec[] {
+  return [];
 }
 
 /**
