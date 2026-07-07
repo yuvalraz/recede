@@ -1,69 +1,64 @@
 # Recede
 
-**Trust is a trajectory, not a checkpoint.** AI agents earn autonomy from evidence, one verified action at a time, and human review recedes exactly where the evidence says it can, with a receipt for every action you no longer read.
+**Trust is a trajectory, not a checkpoint.** Recede is an open protocol that decides, with receipts, when an agent's work still needs human review. It does not review code or predict quality; it makes the review-skipping teams already do under delivery pressure explicit and auditable. Every decision is a pure function over a hash-linked evidence chain, scoped per `(Actor, TaskType)`, earned slowly and lost fast, with hard floors on irreversible actions. Review recedes where your declared policy says the receipts have earned it, never because a score says so, and snaps back the instant quality regresses.
 
-> Status: **v0.1 DRAFT** — the protocol is the deliverable; the reference code is proof. Breaking changes expected before 1.0. Apache-2.0 © 2026 Yuval Raz.
+> Status: **v0.1 DRAFT**. The protocol is the deliverable; the reference code is proof. Breaking changes expected before 1.0. Apache-2.0 © 2026 Yuval Raz.
 
 ---
 
 ## The problem: review fatigue
 
-Put an AI agent on consequential work — code, support replies, refunds, document intake — and a human is nominally reviewing it. But no one can meaningfully review everything an agent does at agent speed, so review collapses into one of two failure modes: **rubber-stamp** everything (the review is theater) or **bottleneck** everything (the agent's speed is wasted). Engineering teams feel it first in the development loop — nobody can read 40 agent PRs a day — which is why that's where Recede starts. It is not where it ends.
+The question every engineering team is now asking is whether an AI reviewer is finally good enough to push a PR to production without a human. It is the wrong question. Put an AI agent on consequential work (code, support replies, refunds, document intake) and a human is nominally reviewing it. Nobody can review everything an agent does at agent speed, so review collapses into rubber-stamping (theater) or bottlenecking (the agent's speed is wasted). Engineering teams feel it first: nobody reads dozens of agent PRs a day. The useful problem is narrower: knowing where review can safely recede, and where it never can. Recede starts there and reaches further.
 
-The root cause is a **trust-calibration bug**. Today, trust in an AI agent is:
-- **mis-attributed** — treated as one global "do I trust the AI?" verdict, when *trusted to fix a flaky test* and *trusted to run a schema migration* are completely different questions — and neither says anything about *trusted to answer a customer*, and
-- **mis-calibrated** — granted or withheld by feeling, not by evidence, so it lurches between blind acceptance and blanket suspicion.
+The root cause is a trust-calibration bug. Trust in an agent today is **mis-attributed**: one global "do I trust the AI?" verdict, when *trusted to fix a flaky test* and *trusted to run a schema migration* are different questions, and neither says anything about *trusted to answer a customer*. And it is **mis-calibrated**: granted or withheld by feeling, not evidence. The usual answer is a bigger dashboard, a 0-1000 score, more alerts. More to watch. The payoff of earned trust should be that review disappears where it is no longer warranted, and snaps back the instant quality regresses.
 
-Every tool in this space answers with *more to watch*: bigger dashboards, a 0–1000 "trust score", more alerts. Wrong direction. **The payoff of earned trust should be that review disappears where it's no longer warranted** — and snaps back the instant quality regresses.
+## How you adopt it
 
-## The idea: small daily wins compound
-
-A verified, validated change is a small trust win. It should *accumulate*. Recede makes trust a value held **per `(Actor, TaskType)`** that moves along a trajectory: each clean change nudges it up, a regression drops it fast. Once enough small wins have compounded on `code.fix`, the human checkpoint on low-risk fixes quietly recedes — while `schema.migrate` still stops for a human every time. Nobody edited a rule; the evidence moved.
-
-## What it is
-
-Recede is an open, language- and transport-agnostic **protocol** (plus a thin reference library). It defines *records, transitions, and invariants* — not an agent runtime, a database, an ML model, or a UI. It sits as a **layer above** interop protocols (MCP/A2A), eval/observability tools, and static guardrails, consuming their signals as evidence rather than replacing them. The checks you already run *become* the evidence — in an SDLC that's your CI, tests, and PR reviews; in a support flow it's your grounding and policy checks. You wrap one function.
+**Wrap one function.** A verified, validated change is a small trust win, held per `(Actor, TaskType)`. Wins compound on `code.fix` until, under a policy you declared, the human checkpoint on low-risk fixes recedes, while `code.migrate` still stops for a human every time. Nobody edits a rule at that moment; the receipts crossed the bar your policy set, and a regression drops them back below it just as fast.
 
 ## The model in five bullets
 
-1. **Trust is scoped.** Held per `(Actor, TaskType)` — never one global agent score. Trusted on `code.fix` ≠ trusted on `code.migrate`. Review can recede in one lane while staying tight in another.
-2. **Every action emits a Warrant.** An append-only, hash-linked evidence chain: *intent → change → checks → outcome*. Trust is a sum over receipts you can open — no Warrant, no trust movement.
-3. **V&V is first-class and split.** **Verify** = "did it do the thing right" (CI, tests, types). **Validate** = "did it do the *right* thing" (does the delivered flow match intent, at quality). Conflating "tests are green" with "it did what I asked" is how confidently-wrong code merges.
-4. **The Gate is a pure function.** `gate(trust, risk, policy) → checkpoint | autonomous`. Same inputs, same decision, always replayable. That makes "review recedes as trust is earned" a *provable property*, not a vibe.
-5. **Trust is asymmetric and bounded.** Earned slowly, lost fast; it decays with staleness and drift; and irreversible actions (migrations, prod deploys) keep a human checkpoint at *every* tier. Earned autonomy is bounded, never unbounded.
+1. **Trust is scoped.** Held per `(Actor, TaskType)`, never one global agent score. Trusted on `code.fix` ≠ trusted on `code.migrate`. Review recedes in one lane while staying tight in another.
+2. **Every action emits a Warrant.** An append-only, hash-linked evidence chain: *intent → change → checks → outcome*. Trust is a sum over receipts you can open. No Warrant, no trust movement.
+3. **V&V is first-class and split.** **Verify** = the technical contract holds (CI, tests, types). **Validate** = the product contract holds (the change delivers what the ticket and the product intent actually asked, at quality). Trust is only ever as trustworthy as the product context you measure Validate against. Conflating "tests are green" with "it did what I asked" is how confidently-wrong code merges.
+4. **The Gate is a pure function.** `gate(trust, risk, policy) → checkpoint | autonomous`. Same inputs, same decision, always replayable. That makes "review recedes as trust is earned" a provable property.
+5. **Trust is asymmetric and bounded.** Earned slowly, lost fast. It decays with staleness and with drift: as the system changes, trust in work built on a contract falls until the contract is re-satisfied, so review re-arms exactly where drift grows. Irreversible actions (migrations, prod deploys) keep a human checkpoint at *every* tier. Earned autonomy is bounded, never unbounded.
+
+`replay()` over the stored Warrants reconstructs the exact trust state from receipts plus pinned policy, so "why did this merge unattended?" is answered by pointing at the chain.
+
+## The pre-registered test
+
+A protocol that grades agents has to accept the same grading, and Recede's own dogfooding ledger could not provide it: for weeks it held one actor's records with zero reverts, and a ledger that only ever says PASS carries no information (invariant I4 says exactly that). Real history has the reverts, so I ran a pre-registered test against it: could replayed lane trust, computed from evidence observable at merge time only, predict which merged PRs later reverted, better than trivial baselines?
+
+> Before any result existed I froze the revert definition, the success thresholds, and the leakage rules, and committed to shipping the result either way. On 6,464 next.js PRs the current trust math did not beat trivial baselines; the 3,457 langchain PRs were underpowered and inconclusive. A post-hoc correction I made to an under-converged baseline is what flipped the first result against my own thesis. The pipelines are deterministic and the scorecards publish with the writeup. Nothing Recede delivers today depends on that predictive claim, and the discipline of the null is why you can trust the numbers it does publish.
+
+Predicting which changes will revert is a roadmap capability, not a claim Recede makes today; adoption is what accrues the data a future iteration would need. What ships now is the governance gate itself: warrant chains, a pure replayable decision, asymmetric trust with hard never-recede floors, and a receipt for every action a human no longer reads.
 
 ## One protocol, many flows
 
-Recede doesn't know what code is. The spec defines actors, task types, evidence, and a gate — *the flow decides* what Verify, Validate, and "irreversible" mean. The same eight operations:
+Recede does not know what code is. The spec defines actors, task types, evidence, and a gate; the flow decides what Verify, Validate, and "irreversible" mean.
 
-**SDLC — the entry manifestation.** Where the industry's pain is sharpest today. Task types like `code.fix` / `code.feature` / `code.migrate`; Verify = CI, tests, types; Validate = the change does what the ticket asked, at quality. Review recedes on low-risk fixes; a schema migration or prod deploy never recedes. Worked end to end in [`examples/sdlc`](./examples/sdlc) and the [CC10X adapter](./integrations/cc10x).
+- **SDLC, the entry.** `code.fix` / `code.feature` / `code.migrate`; Verify = CI, tests, types; Validate = the change does what the ticket asked. Worked end to end in [`examples/sdlc`](./examples/sdlc) and the [CC10X adapter](./integrations/cc10x).
+- **Refunds and commerce ops, the frontier.** Outcomes defer: a chargeback flips SUCCESS → REVERTED a day later and trust drops retroactively. Above a threshold, `never_recede`. Runnable in [`examples/refund`](./examples/refund); a mandate-carrying shopping agent rides the same protocol in [`examples/agentic-checkout`](./examples/agentic-checkout).
+- **Conversational and support.** `reply.draft` and `reply.send` are different task types with different risk. Verify = grounding, citations, PII scrub; Validate = tone, policy, intent fit. Review recedes on routine intents, never on legal or medical paths.
+- **Intake and document pipelines.** `doc.classify`, `doc.extract`; Verify = schema validity; Validate = sampled human ground truth. A new vendor format re-arms review by itself.
 
-**Refunds & commerce ops — the frontier.** `refund.issue`, `refund.escalate`; Verify = amounts, limits, ledger invariants; Validate = policy fit and abuse signals. Outcomes defer — a chargeback flips SUCCESS → REVERTED a day later and trust re-folds. Above a threshold, `never_recede`. Runnable in [`examples/refund`](./examples/refund). A mandate-carrying shopping agent (Nekuda-style ex-ante permission) rides the same protocol in [`examples/agentic-checkout`](./examples/agentic-checkout).
-
-**Conversational & support flows.** `reply.draft` and `reply.send` are *different task types with different risk*; Verify = grounding, citations, PII scrub; Validate = tone, policy, intent fit. Review recedes on routine intents — never on legal, medical, or escalation paths.
-
-**Intake & document pipelines.** `doc.classify`, `doc.extract`, `record.create`; Verify = schema validity; Validate = sampled human ground truth. Trust recedes per document-type lane and snaps back on drift — a new vendor format re-arms review by itself.
-
-Same protocol, same invariants, same receipts. Only the checks and the policy change.
+Same protocol, same receipts. Only the checks and the policy change.
 
 ## Why it's different
 
 | Incumbent | What it does | Recede's distinct axis |
 |---|---|---|
-| Eval / observability tools | Score each run in isolation | **Trust has memory** — carried forward per capability |
+| Eval / observability tools | Score each run in isolation | **Trust has memory**, carried forward per capability |
 | Static guardrails / control standards | Apply the same checkpoints uniformly, forever | **Review is proportional** to earned evidence |
-| Governance promotion-ladders | Earned, but coarse HR-style tiers + calendar time + sign-off | **Continuous & machine-verifiable**, per-action |
-| Agent identity / A2A | Establish *who* the agent is | Not who it is — **what it has earned** |
+| Governance promotion-ladders | Earned, but coarse HR-style tiers, calendar time, sign-off | **Continuous and machine-verifiable**, per action |
+| Agent identity / A2A | Establish *who* the agent is | Tracks **what the agent has earned** |
 
-## The story in 30 seconds
-
-The entry manifestation, worked: a coding agent on a backlog of small fixes (`code.fix`). **Day 1:** every change is human-reviewed — the reviewer sees the intent, the check verdicts, the diff, approves in seconds. **Verify** is CI/tests/types green; **Validate** is "the change actually does what the ticket asked, at quality." Each clean, verified-and-validated fix is a small trust win, and they compound. **~30 clean fixes in:** the *same call site* stops paging a human for low-risk fixes — they merge autonomously, Warrant still recorded, no interruption. The reviewer's attention is now spent only where it's warranted. **Then** a fix that shipped autonomously gets reverted in staging: trust drops below the tier floor and review **snaps back automatically** — no rule edited, the evidence moved. And a **`schema.migrate`** always stops for a human, at every tier, because some actions are never safe to recede. Every step is auditable: `replay()` over the stored Warrants reproduces the exact trust state, so "why did this merge unattended?" is answered by pointing at the receipts.
-
-Every other flow — refunds, support replies, document intake — rides the *same* protocol with different checks and a different policy (see [One protocol, many flows](#one-protocol-many-flows)). The everyday win starts in your SDLC: small daily verified wins, compounding into earned, bounded autonomy.
+Recede sits as a layer above interop protocols (MCP/A2A), eval tools, static guardrails, and framework validation loops (accessibility, SEO, type, and contract validators that already check every agent output), consuming their signals as evidence rather than replacing them. The checks you already run become the evidence, and Recede is the memory and the gate on top of them: it decides, per lane, when their green is enough to let review recede.
 
 ## Quickstart
 
-> _Reference implementation (TypeScript primary, Python mirror) — see [`reference/`](./reference/). Wrapping CC10X or another agent harness? See [`INTEGRATIONS.md`](./INTEGRATIONS.md)._
+> Reference implementation: TypeScript primary, Python mirror, in [`reference/`](./reference/). Wrapping CC10X or another harness? See [`INTEGRATIONS.md`](./INTEGRATIONS.md).
 
 ```ts
 const r = new Recede({ ledger: new MemoryLedger(), checkpoint: consoleCheckpoint(), policy });
@@ -78,25 +73,27 @@ const outcome = await r.run(() => agent.implement(ticket), {
   risk: "reversible.low",
   checks: [ciGreen, intentOK],
 });
-// The gate is IMPLICIT — no `if (needsReview)` in your code. run() decides.
+// The gate is IMPLICIT. No `if (needsReview)` in your code; run() decides.
 outcome.result;      // the change (or the human-edited version)
 outcome.trust;       // { before, after, delta } for (code-agent, code.fix)
 outcome.checkpoint;  // undefined once review has receded for low-risk fixes
 outcome.warrant;     // the hash-linked evidence chain: intent -> diff -> checks -> outcome
 ```
 
-Wrap the function you already have. As the ledger accrues verified, validated changes, that same call site graduates from "always ask a human" to "merge autonomously" — and reverts the moment the agent regresses.
+Wrap the function you already have. As the ledger accrues verified, validated changes, the same call site graduates from "always ask a human" to "merge autonomously", and reverts the moment the agent regresses.
 
-## Status & scope
+## Status and scope
 
-**v0.1 ships:** the normative record schemas, the trust-state model + tiers + invariants I1–I7, the pure `gate()` + declarative Policy matrix, the pure `update()`/`replay()` reducers, first-class Verify/Validate checks, a reference weighting function (asymmetric + decay + near-miss ratchet), a reference implementation (TypeScript primary, Python mirror) with a cross-language conformance vector, one CLI checkpoint surface, and runnable examples: [`examples/sdlc`](./examples/sdlc) (the everyday case), [`examples/refund`](./examples/refund) (the higher-stakes frontier), and [`examples/agentic-checkout`](./examples/agentic-checkout) (a mandate-carrying shopping agent). Integrations: [`INTEGRATIONS.md`](./INTEGRATIONS.md) (CC10X force-multiplier, OKF export, OpenWiki trust-calibrated wikis). See [`SPEC.md`](./SPEC.md).
+**v0.1 ships:** the normative record schemas, the trust-state model with tiers T0-T4 and invariants I1-I7, the pure `gate()` with a declarative Policy matrix, the pure `update()`/`replay()` reducers, first-class Verify/Validate checks, a reference weighting function (asymmetric, decaying, near-miss ratchet), a TypeScript reference with a Python mirror and a cross-language conformance vector, one CLI checkpoint surface, and runnable examples: [`examples/sdlc`](./examples/sdlc), [`examples/refund`](./examples/refund), [`examples/agentic-checkout`](./examples/agentic-checkout). Integrations: [`INTEGRATIONS.md`](./INTEGRATIONS.md) (CC10X, OKF export, OpenWiki trust-calibrated wikis).
 
-**Explicitly deferred:** cryptographic identity/PKI, ML scoring, distributed ledgers, a web dashboard (shipping one first would betray the anti-fatigue thesis), multi-agent delegation, framework plugins, and compliance mapping. Interfaces are left where a platform would later grow.
+**Roadmap, not built:** predictive trust calibration. The [pre-registered test](#the-pre-registered-test) showed the current math does not beat trivial baselines at predicting reverts on two repositories; better predictors are a research thread that adoption data would feed. No history-scan or recorder tooling ships today.
+
+**Explicitly deferred:** cryptographic identity/PKI, ML scoring, distributed ledgers, a web dashboard (shipping one first would betray the anti-fatigue thesis), multi-agent delegation, framework plugins, compliance mapping. Interfaces are left where a platform would later grow.
 
 ## Clean-room
 
-Designed from first principles and **public** prior art only (append-only logs, content addressing, risk matrices, calibration, human-in-the-loop gating, verification-vs-validation from systems engineering). No proprietary or employer-internal system, concept, or name is referenced.
+Designed from first principles and **public** prior art only: append-only logs, content addressing, risk matrices, calibration, human-in-the-loop gating, verification-vs-validation from systems engineering. No proprietary or employer-internal system, concept, or name is referenced.
 
 ## License
 
-Apache-2.0 © 2026 Yuval Raz. A protocol earns respect by being implementable and adoptable — take it, build on it, tell me what breaks.
+Apache-2.0 © 2026 Yuval Raz. A protocol earns respect by being implementable and adoptable. Take it, build on it, tell me what breaks.
