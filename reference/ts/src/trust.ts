@@ -21,9 +21,9 @@ import {
   clamp01,
   decayScore,
   foldSignal,
-  signalOf,
   tierFor,
 } from "./weighting.ts";
+import { strategyFor } from "./weighting-strategy.ts";
 
 export interface TrustState {
   actor: string;
@@ -97,8 +97,10 @@ export function update(
     score = decayScore(score, prev.tier, idle_ms, drift, policy);
   }
 
-  // 2. Fold the warrant's signal.
-  const s = signalOf(warrant);
+  // 2. Fold the warrant's signal. The weighting strategy is policy-selected
+  //    (SPEC §9); the default (undefined tag) resolves to the reference v0.1.
+  //    replay() threads the same policy, so the fold strategy is recovered (I2).
+  const s = strategyFor(policy).signalOf(warrant, policy);
   let confidence = prev.confidence;
   let sample_count = prev.sample_count;
 

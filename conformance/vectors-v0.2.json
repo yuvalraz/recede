@@ -1,0 +1,96 @@
+{
+  "$comment": "0.2.0 cross-language conformance vector for the recede/ref-weighting-v0.2 pooled noisy-OR profile (SPEC §9). Each entry folds from cold start via update(state, warrant, referencePolicyV02(evidence_weights), ...). Checks carry an `ev` descriptor that the harness/test turns into a hash-covered evidence_ref via evRef(evClass, provTier, author, artifactDigest, locator, {mutation}). This vector is TS-demonstrated; the Python mirror is a declared fast-follow (FF1) and its harness prints an explicit UNSUPPORTED-profile skip for this profile.",
+  "version": "0.2.0",
+  "weighting_profile": "recede/ref-weighting-v0.2",
+  "policy": "referencePolicyV02",
+  "scope": { "actor": "billing-bot", "task_type": "refund.issue" },
+  "ground_truth_source": "conformance",
+  "evidence_weights": {
+    "$comment": "DECLARED POLICY, NOT PREDICTION. These are edit-me illustrative anchors (decision #4 / red-team #1,#4): Recede ships no validated magnitude an adopter did not author. Shape is evClass -> provTier -> weight in [0,1]. Higher class/tier => stronger declared corroboration.",
+    "unit": { "L1": 0.3, "L2": 0.55, "L3": 0.75 },
+    "integration": { "L1": 0.4, "L2": 0.7, "L3": 0.85 },
+    "e2e": { "L1": 0.5, "L2": 0.8, "L3": 0.95 }
+  },
+  "notes": [
+    "The scenario exercises, in order: (A) accrual under a genuine cross-class noisy-OR pool (independent integration L3 + e2e L3, pool = 1-(1-0.85)(1-0.95) = 0.9925); (B) the assertion-strength gate (a test-class integration L3 check WITHOUT the mut=1 marker is demoted to L1 => weight 0.40); (C) the author-independence gate (an e2e L3 ref authored by the acting agent 'billing-bot' is floored to L1 => weight 0.50); (D) class-dedup (two independent integration L3 checks keep the max 0.85, they do not compound); (E) a REVERTED reseal (autonomous near-miss ratchet + forced demotion).",
+    "All idle_ms/drift are 0 and timestamps are explicit, so the fold is fully deterministic. FINAL_* and expected_record_hash.id are frozen-by-construction: generated from the TS reference impl under this policy, then pinned as the cross-session regression anchor."
+  ],
+  "entries": [
+    { "ts": "2026-02-01T00:00:00.000Z", "risk": "read.only", "checks": [
+      { "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "integration", "provTier": "L3", "author": "ci-runner", "artifactDigest": "sha256:aa01", "locator": "gh://run/1001", "mutation": true } },
+      { "kind": "VALIDATE", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "e2e", "provTier": "L3", "author": "qa-svc", "artifactDigest": "sha256:bb01", "locator": "gh://run/2001", "mutation": true } }
+    ], "result": "SUCCESS", "$note": "strong cross-class pool: integration L3 (0.85) OR e2e L3 (0.95) = 0.9925" },
+    { "ts": "2026-02-01T00:00:01.000Z", "risk": "read.only", "checks": [
+      { "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "integration", "provTier": "L3", "author": "ci-runner", "artifactDigest": "sha256:aa02", "locator": "gh://run/1002", "mutation": true } },
+      { "kind": "VALIDATE", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "e2e", "provTier": "L3", "author": "qa-svc", "artifactDigest": "sha256:bb02", "locator": "gh://run/2002", "mutation": true } }
+    ], "result": "SUCCESS" },
+    { "ts": "2026-02-01T00:00:02.000Z", "risk": "read.only", "checks": [
+      { "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "integration", "provTier": "L3", "author": "ci-runner", "artifactDigest": "sha256:aa03", "locator": "gh://run/1003", "mutation": true } },
+      { "kind": "VALIDATE", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "e2e", "provTier": "L3", "author": "qa-svc", "artifactDigest": "sha256:bb03", "locator": "gh://run/2003", "mutation": true } }
+    ], "result": "SUCCESS" },
+    { "ts": "2026-02-01T00:00:03.000Z", "risk": "read.only", "checks": [
+      { "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "integration", "provTier": "L3", "author": "ci-runner", "artifactDigest": "sha256:aa04", "locator": "gh://run/1004", "mutation": true } },
+      { "kind": "VALIDATE", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "e2e", "provTier": "L3", "author": "qa-svc", "artifactDigest": "sha256:bb04", "locator": "gh://run/2004", "mutation": true } }
+    ], "result": "SUCCESS" },
+    { "ts": "2026-02-01T00:00:04.000Z", "risk": "read.only", "checks": [
+      { "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "integration", "provTier": "L3", "author": "ci-runner", "artifactDigest": "sha256:aa05", "locator": "gh://run/1005", "mutation": true } },
+      { "kind": "VALIDATE", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "e2e", "provTier": "L3", "author": "qa-svc", "artifactDigest": "sha256:bb05", "locator": "gh://run/2005", "mutation": true } }
+    ], "result": "SUCCESS" },
+    { "ts": "2026-02-01T00:00:05.000Z", "risk": "read.only", "checks": [
+      { "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "integration", "provTier": "L3", "author": "ci-runner", "artifactDigest": "sha256:aa06", "locator": "gh://run/1006", "mutation": true } },
+      { "kind": "VALIDATE", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "e2e", "provTier": "L3", "author": "qa-svc", "artifactDigest": "sha256:bb06", "locator": "gh://run/2006", "mutation": true } }
+    ], "result": "SUCCESS" },
+    { "ts": "2026-02-01T00:00:06.000Z", "risk": "read.only", "checks": [
+      { "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "integration", "provTier": "L3", "author": "ci-runner", "artifactDigest": "sha256:aa07", "locator": "gh://run/1007", "mutation": true } },
+      { "kind": "VALIDATE", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "e2e", "provTier": "L3", "author": "qa-svc", "artifactDigest": "sha256:bb07", "locator": "gh://run/2007", "mutation": true } }
+    ], "result": "SUCCESS" },
+    { "ts": "2026-02-01T00:00:07.000Z", "risk": "read.only", "checks": [
+      { "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "integration", "provTier": "L3", "author": "ci-runner", "artifactDigest": "sha256:aa08", "locator": "gh://run/1008", "mutation": true } },
+      { "kind": "VALIDATE", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "e2e", "provTier": "L3", "author": "qa-svc", "artifactDigest": "sha256:bb08", "locator": "gh://run/2008", "mutation": true } }
+    ], "result": "SUCCESS" },
+    { "ts": "2026-02-01T00:01:00.000Z", "risk": "read.only", "checks": [
+      { "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "integration", "provTier": "L3", "author": "ci-runner", "artifactDigest": "sha256:cc01", "locator": "gh://run/3001", "mutation": false } }
+    ], "result": "SUCCESS", "$note": "assertion-strength gate: integration L3 WITHOUT mut=1 => demoted to L1 => weight 0.40 (not 0.85)" },
+    { "ts": "2026-02-01T00:02:00.000Z", "risk": "read.only", "checks": [
+      { "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "e2e", "provTier": "L3", "author": "billing-bot", "artifactDigest": "sha256:dd01", "locator": "gh://run/4001", "mutation": true } }
+    ], "result": "SUCCESS", "$note": "author-independence gate: e2e L3 authored by the acting agent 'billing-bot' => floored to L1 => weight 0.50 (not 0.95)" },
+    { "ts": "2026-02-01T00:03:00.000Z", "risk": "read.only", "checks": [
+      { "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "integration", "provTier": "L3", "author": "ci-runner", "artifactDigest": "sha256:ee01", "locator": "gh://run/5001", "mutation": true } },
+      { "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "integration", "provTier": "L3", "author": "ci-runner-2", "artifactDigest": "sha256:ee02", "locator": "gh://run/5002", "mutation": true } }
+    ], "result": "SUCCESS", "$note": "class-dedup: two independent integration L3 checks keep the max 0.85; redundant same-class evidence does not compound" },
+    { "ts": "2026-02-01T00:04:00.000Z", "risk": "read.only", "checks": [
+      { "kind": "VERIFY", "verdict": "PASS", "confidence": 1.0, "ev": { "evClass": "integration", "provTier": "L3", "author": "ci-runner", "artifactDigest": "sha256:ff01", "locator": "gh://run/6001", "mutation": true } }
+    ], "result": "REVERTED", "$note": "autonomous REVERTED outcome => near-miss ratchet + forced demotion (recede). v0.2 pooling never softens the negative path (I4)." }
+  ],
+  "pool_witnesses": {
+    "$comment": "Independent hand-computed pooledConfidence values (from the SPEC noisy-OR formula and the declared evidence_weights above), asserted by the TS suite to prove the gates + pool actually fire (anti-tautology).",
+    "strong_cross_class": 0.9925,
+    "assertion_strength_gated": 0.4,
+    "author_independence_gated": 0.5,
+    "class_dedup": 0.85
+  },
+  "expected_final_trust": {
+    "$comment": "Frozen-by-construction from the TS reference replay under referencePolicyV02(evidence_weights). The closing REVERTED reseal recedes the accrued trust (forced demotion) back to T0 — the recede demonstration. Any future fold change that moves these breaks the pin (the cross-session regression guard).",
+    "tier": "T0",
+    "score": 0.098623837963203,
+    "confidence": 0.749941513903208,
+    "sample_count": 12
+  },
+  "expected_record_hash": {
+    "$comment": "A literal CHECK record carrying an evidence_ref; its content id (computed over the canonical body, evidence_refs INCLUDED) proves evidence_refs are in the hashed pre-image — mutating any ref changes the record id (tamper-evident).",
+    "record": {
+      "kind": "CHECK",
+      "actor": "billing-bot",
+      "ts": "2026-02-01T00:00:00.000Z",
+      "prev": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "action_ref": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "check_kind": "VERIFY",
+      "method": "m",
+      "verdict": "PASS",
+      "confidence": 1.0,
+      "evidence_refs": ["ev1|integration|L3|ci-runner|sha256:aa01|gh://run/1001|mut=1"]
+    },
+    "canonical": "{\"action_ref\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"actor\":\"billing-bot\",\"check_kind\":\"VERIFY\",\"confidence\":1,\"evidence_refs\":[\"ev1|integration|L3|ci-runner|sha256:aa01|gh://run/1001|mut=1\"],\"kind\":\"CHECK\",\"method\":\"m\",\"prev\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ts\":\"2026-02-01T00:00:00.000Z\",\"verdict\":\"PASS\"}",
+    "id": "sha256:87134a1c4b6bd24ab9a397e26fd93bbc7fccb43c31b2d896900c64457970aee1"
+  }
+}

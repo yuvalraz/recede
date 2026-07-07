@@ -64,6 +64,29 @@ export {
   type Signal,
 } from "./weighting.ts";
 
+// Policy-selected weighting-strategy seam (SPEC §9)
+export {
+  REF_WEIGHTING_V01,
+  REF_WEIGHTING_V02,
+  STRATEGIES,
+  strategyFor,
+  type WeightingStrategy,
+} from "./weighting-strategy.ts";
+
+// v0.2 pooled noisy-OR weighting profile (SPEC §9)
+export {
+  descOf,
+  effectiveWeight,
+  evRef,
+  isTestClass,
+  parseEvRef,
+  pooledConfidence,
+  referencePolicyV02,
+  signalOfV02,
+  UNKNOWN_WEIGHT,
+  type EvDesc,
+} from "./weighting-v0.2.ts";
+
 // Pure trust reducers
 export {
   coldStart,

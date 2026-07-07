@@ -1,0 +1,53 @@
+
+──────────────────────────────────────────────────────────────────────────
+  EVIDENCE-POOLING — flat-mean drags; pooled adds
+  actor=opus-4.8@claude-code  task=code.fix  risk=reversible.low  cycles=16
+  clock=fixed  idle_ms=0 (no decay)  strong declared weight=0.7
+──────────────────────────────────────────────────────────────────────────
+  Same warrants, same runLane(). strongOnly folds one strong VERIFY; 
+  strongPlusWeak adds a weak VALIDATE. v0.1 averages the weak confidence
+  into the mean (drags down); v0.2 pools it via noisy-OR (adds). Weights
+  are declared policy, not a prediction (EVIDENCE.md, red-team rules 1+4).
+
+──────────────────────────────────────────────────────────────────────────
+  (a) v0.1 PATHOLOGY — a weak VALIDATE DRAGS trust below VERIFY-alone
+──────────────────────────────────────────────────────────────────────────
+     v0.1 strongOnly     : score=0.870663009 (T2)
+     v0.1 strongPlusWeak : score=0.664610069 (T2)
+     drag = 0.206052939 (adding evidence LOWERED trust)
+  ✓ A1: under v0.1, score([strongVERIFY, weakVALIDATE]) < score([strongVERIFY]) (0.664610 < 0.870663) — the flat-mean averaging-down bug
+  ✓ A2: both v0.1 lanes sealed 16 clean SUCCESS outcomes (identical pass/fail shape; only the added weak check differs)
+
+──────────────────────────────────────────────────────────────────────────
+  (b) v0.2 FIX — pooled evidence can only ADD (>= strong-alone AND >= strong weight)
+──────────────────────────────────────────────────────────────────────────
+     v0.2 strongOnly     : score=0.754343885 (T2)
+     v0.2 strongPlusWeak : score=0.755884078 (T2)
+     lift = 0.001540192 (adding evidence RAISED trust, never below)
+  ✓ A3: under v0.2, score([strongVERIFY, weakVALIDATE]) >= score([strongVERIFY]) (0.755884 >= 0.754344) — pooling means adding can only ADD
+     pool strongOnly     : 0.700000  (= strongest single class weight 0.7)
+     pool strongPlusWeak : 0.703000  (adding the weak class only ADDED to the pool)
+  ✓ A4: the v0.2 pool over [strongVERIFY, weakVALIDATE] never sits below its strongest single class (pooledConfidence=0.703000 >= strong declared weight 0.7) — structural, at any cycle count
+  ✓ A5: adding a PASS class can only ADD to the v0.2 pool (pooledConfidence([strong,weak])=0.703000 >= pooledConfidence([strong])=0.700000) — noisy-OR is monotone in added PASS checks
+
+──────────────────────────────────────────────────────────────────────────
+  (c) CONTROL — the SAME lane folded twice is byte-identical (divergence is the weighting, not noise)
+──────────────────────────────────────────────────────────────────────────
+     controlA : score=0.664610069382  n=16
+     controlB : score=0.664610069382  n=16
+  ✓ A6: the same lane folded twice is BYTE-IDENTICAL (score=0.664610069382) — the (a)/(b) divergence is CAUSED by the weighting profile, not run-to-run noise
+
+──────────────────────────────────────────────────────────────────────────
+  (I2) REPLAY — the trust movement is real protocol trust, replayable
+──────────────────────────────────────────────────────────────────────────
+     v0.1 strongPlusWeak: stored=0.664610069 / replay=0.664610069
+     v0.2 strongPlusWeak: stored=0.755884078 / replay=0.755884078
+  ✓ A7: replay() == live trust for the v0.1 lane (score+tier+n)
+  ✓ A8: replay() == live trust for the v0.2 lane (score+tier+n)
+
+──────────────────────────────────────────────────────────────────────────
+  ✓ all 8/8 assertions passed
+  A weak VALIDATE dragged v0.1 trust below VERIFY-alone; under v0.2
+  the same evidence only added. The control fold was byte-identical.
+──────────────────────────────────────────────────────────────────────────
+

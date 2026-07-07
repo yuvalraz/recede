@@ -30,11 +30,13 @@ import {
   MemoryLedger,
   check,
   defaultPolicy,
+  evRef,
   type CheckSpec,
   type CheckpointHandler,
   type Ledger,
   type OutcomeResult,
   type Policy,
+  type Verdict,
 } from "../../reference/ts/src/index.ts";
 
 // ---------------------------------------------------------------------------
@@ -86,6 +88,38 @@ export interface Cc10xPhaseSignal {
   confidence: number;
 }
 
+/**
+ * One evidence descriptor for a v2 phase signal. It is built verbatim into an
+ * `evRef` (`ev1|evClass|provTier|author|artifactDigest|locator[|mut=1]`) and thus
+ * bound into the CheckRecord id (tamper-evident). `provTier` is the declared
+ * provenance tier the v0.2 weighting reads; `mutation` sets the assertion-strength
+ * marker.
+ */
+export interface EvidenceInput {
+  evClass: string;
+  provTier: string;
+  author: string;
+  artifactDigest: string;
+  locator: string;
+  mutation?: boolean;
+}
+
+/**
+ * A v2 CC10X phase outcome: a full three-valued verdict plus OPTIONAL hash-covered
+ * evidence descriptors. `flaky` maps the phase to INCONCLUSIVE (never FAIL) so a
+ * flaky high-weight failure cannot crater trust at full magnitude (red-team rule
+ * 6). Backward-safe: when `evidence` is absent the check carries empty refs, so a
+ * v2 phase without descriptors folds exactly like the v1 path.
+ */
+export interface Cc10xPhaseSignalV2 {
+  phase: string;
+  kind: "VERIFY" | "VALIDATE";
+  verdict: Verdict;
+  confidence: number;
+  evidence?: EvidenceInput[];
+  flaky?: boolean;
+}
+
 /** The result of one CC10X build unit, ready to fold into Recede. */
 export interface Cc10xBuildInput {
   /** The specific harness/runner acting. This IS the Recede Actor. */
@@ -96,8 +130,12 @@ export interface Cc10xBuildInput {
   intent: string;
   /** Recede RiskClass; small fixes are typically "reversible.low". */
   risk: string;
-  /** The ordered phase signals CC10X produced for this unit. */
-  phases: Cc10xPhaseSignal[];
+  /**
+   * The ordered phase signals CC10X produced for this unit. v1 signals
+   * (`pass: boolean`) fold exactly as before; v2 signals additionally carry
+   * hash-covered `evidence` descriptors.
+   */
+  phases: (Cc10xPhaseSignal | Cc10xPhaseSignalV2)[];
   /**
    * When set, the outcome seals UNRESOLVED with this deferral window and is
    * re-sealed later via `reseal()` once ground truth arrives (SPEC section 6).
@@ -125,17 +163,66 @@ export function codingPolicy(): Policy {
 // Phase signals -> Recede checks
 // ---------------------------------------------------------------------------
 
+/** True when a phase signal is the v2 (verdict-carrying) shape. */
+function isV2(p: Cc10xPhaseSignal | Cc10xPhaseSignalV2): p is Cc10xPhaseSignalV2 {
+  return "verdict" in p;
+}
+
+/** One v1 phase -> a CheckSpec (unchanged v1 behavior; carries empty refs). */
+function v1ToCheck(p: Cc10xPhaseSignal): CheckSpec {
+  return p.kind === "VERIFY"
+    ? check.verify(`cc10x:${p.phase}`, () => p.pass)
+    : check.validate(`cc10x:${p.phase}`, () => ({ ok: p.pass, confidence: p.confidence }));
+}
+
+/**
+ * The (sorted) evidence_refs for a v2 phase. Sorting is load-bearing: canonicalize
+ * preserves array order, so unsorted refs would make the CheckRecord id depend on
+ * the caller's input order (an I2 reconstructability hazard). A deterministic sort
+ * pins the id to the SET of refs, not their arrival order.
+ */
+// ponytail: multiple `evidence` inputs = multiple artifacts backing ONE logical
+// class (the hash-covered audit trail), not multiple pooled classes. The v0.2
+// weighting reads the sort-first descriptor as the check's class; to pool distinct
+// classes, emit one phase (check) per class. Within-check pooling is the deferred
+// upgrade path (see `descOf` in weighting-v0.2.ts), not built now.
+function refsOf(p: Cc10xPhaseSignalV2): string[] {
+  return (p.evidence ?? [])
+    .map((e) => evRef(e.evClass, e.provTier, e.author, e.artifactDigest, e.locator, { mutation: e.mutation }))
+    .sort();
+}
+
+/** One v2 phase -> a CheckSpec carrying its sorted, hash-covered evidence_refs. */
+function v2ToCheck(p: Cc10xPhaseSignalV2): CheckSpec {
+  const name = `cc10x:${p.phase}`;
+  const verdict: Verdict = p.flaky ? "INCONCLUSIVE" : p.verdict;
+  const evidence_refs = refsOf(p);
+  return {
+    name,
+    check_kind: p.kind,
+    run: () => ({ name, check_kind: p.kind, verdict, confidence: p.confidence, evidence_refs }),
+  };
+}
+
 /**
  * Translate CC10X phase signals into Recede check specs. Each check closes over
  * the reported verdict — CC10X already ran the analysis; the adapter records
  * verdicts, it does not re-derive them.
  */
 export function phasesToChecks(phases: Cc10xPhaseSignal[]): CheckSpec[] {
-  return phases.map((p) =>
-    p.kind === "VERIFY"
-      ? check.verify(`cc10x:${p.phase}`, () => p.pass)
-      : check.validate(`cc10x:${p.phase}`, () => ({ ok: p.pass, confidence: p.confidence })),
-  );
+  return phases.map(v1ToCheck);
+}
+
+/**
+ * v2 mapping: each phase becomes a CheckSpec carrying its hash-covered
+ * evidence_refs (evRef grammar) in SORTED order, so the derived CheckRecord id is
+ * independent of the caller's input evidence order (I2). A `flaky` phase seals
+ * INCONCLUSIVE (never FAIL). Emitting refs is inert under a v0.1 policy (v0.1
+ * `signalOf` ignores `evidence_refs`); the refs only carry weight once the
+ * recorder runs under a v0.2 policy — a separate adopter step.
+ */
+export function phasesToChecksV2(phases: Cc10xPhaseSignalV2[]): CheckSpec[] {
+  return phases.map(v2ToCheck);
 }
 
 // ---------------------------------------------------------------------------
@@ -178,8 +265,10 @@ export class Cc10xRecede {
       taskType: build.taskType,
       intent: build.intent,
       risk: build.risk,
-      checks: phasesToChecks(build.phases),
-      operations: build.phases.map((p) => `${p.phase}:${p.pass ? "PASS" : "FAIL"}`),
+      checks: build.phases.map((p) => (isV2(p) ? v2ToCheck(p) : v1ToCheck(p))),
+      operations: build.phases.map((p) =>
+        isV2(p) ? `${p.phase}:${p.flaky ? "INCONCLUSIVE" : p.verdict}` : `${p.phase}:${p.pass ? "PASS" : "FAIL"}`,
+      ),
       groundTruth: "cc10x-phases",
       deferUntil: build.deferUntil,
     });

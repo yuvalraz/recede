@@ -9,17 +9,25 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import {
+  act,
   coldStart,
+  contentId,
   defaultPolicy,
+  evRef,
   gate,
+  makeCheckRecord,
+  open,
   policyDigest,
+  referencePolicyV02,
   replay,
+  seal,
   tierIndex,
   update,
   type Policy,
   type TrustState,
+  type Warrant,
 } from "../src/index.ts";
-import { buildWarrant, cleanSuccess, resetClock } from "./helpers.ts";
+import { buildWarrant, cleanSuccess, resetClock, tick } from "./helpers.ts";
 
 const policy = defaultPolicy();
 
@@ -59,6 +67,44 @@ test("I2: replay reproduces incrementally-folded TrustState exactly", () => {
   // Cold-start replay.
   const rep = replay("bot", "x", warrants, policy);
   assert.deepEqual({ ...rep, updated: undefined }, { ...inc, updated: undefined });
+});
+
+// Tamper-evidence: an evidence_ref is a hash-covered element of the CheckRecord
+// pre-image, so mutating one character breaks the record id (hence the whole
+// chain via `prev`), AND — under a v0.2 policy that reads the ref's declared
+// tier — changes the folded TrustState so a mutated warrant no longer replays to
+// the stored state. Proves BOTH directions: clean reproduces, mutated diverges.
+test("I2 tamper: mutating an evidence_ref breaks the record id AND diverges replay", () => {
+  const p = referencePolicyV02({ integration: { L1: 0.2, L3: 0.7 } });
+  const cleanRef = evRef("integration", "L3", "ci", "sha256:x", "loc", { mutation: true });
+  const mutRef = cleanRef.replace("|L3|", "|L1|"); // one weight-affecting field, one edit
+  assert.notEqual(cleanRef, mutRef);
+
+  const mkW = (ref: string): Warrant => {
+    resetClock();
+    const intent = open({ actor: "agentA", task_type: "code.fix", proposed_action: "a", declared_risk: "reversible.low", ts: tick() });
+    const action = act({ intent, operations: ["op"], result: { r: 1 }, ts: tick() });
+    const chk = makeCheckRecord({ action, check_kind: "VERIFY", method: "m", verdict: "PASS", confidence: 1, evidence_refs: [ref], ts: tick() });
+    const outcome = seal({ warrant_ref: intent.id, actor: "agentA", result: "SUCCESS", ground_truth_source: "test", ts: tick() });
+    return { intent, action, checks: [chk], checkpoints: [], outcome };
+  };
+
+  const cleanW = mkW(cleanRef);
+  const mutW = mkW(mutRef);
+
+  // (1) Hash binding: the ref is inside the CheckRecord pre-image.
+  assert.notEqual(cleanW.checks[0].id, mutW.checks[0].id, "ref mutation must change the record id");
+  assert.notEqual(contentId(cleanW.checks[0]), contentId(mutW.checks[0]));
+
+  // (2) Unmutated reproduces: incremental fold == cold replay (I2), under v0.2.
+  const inc = update(coldStart("agentA", "code.fix"), cleanW, p).state;
+  const rep = replay("agentA", "code.fix", [cleanW], p);
+  assert.deepEqual({ ...rep, updated: undefined }, { ...inc, updated: undefined }, "clean warrant replays to the stored state");
+
+  // (3) Mutated diverges: the ref's declared tier is bound into trust (v0.2 pool).
+  const repMut = replay("agentA", "code.fix", [mutW], p);
+  assert.notEqual(repMut.score, rep.score, "mutating the ref tier changes pooled confidence -> different score");
+  assert.notDeepEqual({ ...repMut, updated: undefined }, { ...rep, updated: undefined }, "a mutated warrant no longer replays to the stored state");
 });
 
 // ---------------------------------------------------------------------------
@@ -124,6 +170,18 @@ test("I6: gate decision carries the producing policy digest", () => {
 test("I6: changing any policy rule changes the digest", () => {
   const p2: Policy = { ...policy, weights: { ...policy.weights, positive_gain: 0.99 } };
   assert.notEqual(policyDigest(policy), policyDigest(p2));
+});
+
+// Byte-identity tripwire for the weighting-strategy seam. The default policy's
+// digest is frozen: adding optional `weighting`/`evidence_weights` fields left
+// undefined on defaultPolicy() must NOT move it (canonicalize drops null/
+// undefined keys — hash.ts:51-53). Every pinned artifact + cross-language
+// vector depends on this string. If it moves, the seam broke the default.
+test("I6: default policy digest is byte-frozen (weighting-strategy seam guard)", () => {
+  assert.equal(
+    policyDigest(defaultPolicy()),
+    "sha256:e3bbda0bde646b86cc43ee0be78370f523b04b95261bf1297cb7a0ba8b5d6234",
+  );
 });
 
 // ---------------------------------------------------------------------------

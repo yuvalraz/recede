@@ -67,6 +67,20 @@ export interface Policy {
   decay: DecayParams;
   /** RiskClasses that MUST keep a checkpoint at every tier (I3). */
   never_recede: RiskClass[];
+  /**
+   * Optional weighting-strategy selector (SPEC §9). Undefined ⇒ the byte-frozen
+   * reference v0.1 weighting. A registered tag (e.g. `recede/ref-weighting-v0.2`)
+   * selects an alternate pooled profile; an UNREGISTERED tag fails loud at fold
+   * time. Digest-safe: `undefined` is dropped by canonicalize (hash.ts:51-53),
+   * so the 0.1.0 default digest is unchanged; any adopter that SETS it gets a
+   * correctly-pinned, different digest (I6).
+   */
+  weighting?: string;
+  /**
+   * Optional per-(evidence-class → tier) weight table consumed only by pooled
+   * weighting profiles. Undefined ⇒ dropped by canonicalize (digest-safe).
+   */
+  evidence_weights?: Record<string, Partial<Record<string, number>>>;
 }
 
 /**
@@ -82,6 +96,10 @@ export function policyDigest(policy: Policy): string {
     weights: policy.weights,
     decay: policy.decay,
     never_recede: policy.never_recede,
+    // Digest-safe: both are `undefined` on the 0.1.0 default and dropped by
+    // canonicalize, so this addition is byte-identical for the default policy.
+    weighting: policy.weighting,
+    evidence_weights: policy.evidence_weights,
   });
 }
 
