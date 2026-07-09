@@ -8,9 +8,11 @@
  * P2.5 remediation — OFFLINE transport tests for GhApiEvidenceSource. Injects a
  * STUBBED exec (no real `gh` spawn, no network) so the subprocess boundary is
  * proven in CI:
- *   - HIGH-1: `--paginate` is appended ONLY on top-level-ARRAY endpoints
- *     (/pulls, /reviews, /deployments); object-envelope endpoints (check-runs,
- *     combined status) do NOT paginate (concatenated JSON would crash JSON.parse).
+ *   - HIGH-1 (updated P3.3): top-level-ARRAY endpoints (/pulls, /reviews,
+ *     /deployments) use bare `--paginate`; object-envelope endpoints (check-runs,
+ *     combined status) use `--paginate --slurp` (bare --paginate would emit
+ *     concatenated JSON that crashes JSON.parse; --slurp wraps page envelopes
+ *     in one array the adapter merges).
  *   - HIGH-2: an absent artifact (`gh run download` stderr "no valid artifacts
  *     found to download") returns null, not a thrown crash.
  *   - MEDIUM-2/3: gh-boundary guards (artifact name leading '-', path '..').
@@ -37,13 +39,15 @@ function recordingExec(seen: Record<string, readonly string[]>) {
   return async (_file: string, args: readonly string[]) => {
     const path = args[1] ?? "";
     seen[path] = args;
-    if (path.includes("/check-runs")) return { stdout: '{"total_count":0,"check_runs":[]}' };
-    if (path.includes("/status")) return { stdout: '{"sha":"x","state":"success","statuses":[]}' };
+    // Envelope endpoints are read with --paginate --slurp (P3.3): one JSON ARRAY
+    // of page envelope objects.
+    if (path.includes("/check-runs")) return { stdout: '[{"total_count":0,"check_runs":[]}]' };
+    if (path.includes("/status")) return { stdout: '[{"sha":"x","state":"success","statuses":[]}]' };
     return { stdout: "[]" };
   };
 }
 
-test("HIGH-1: --paginate ONLY on array endpoints, never on object-envelope endpoints", async () => {
+test("HIGH-1: bare --paginate on array endpoints; --paginate --slurp on object-envelope endpoints", async () => {
   const seen: Record<string, readonly string[]> = {};
   const src = new GhApiEvidenceSource(recordingExec(seen) as never);
   await src.listPullRequests(REPO, { state: "all" });
@@ -56,18 +60,21 @@ test("HIGH-1: --paginate ONLY on array endpoints, never on object-envelope endpo
     Object.entries(seen).find(([p]) => p.includes(frag))![1];
 
   assert.ok(argvFor("/pulls?").includes("--paginate"), "pulls list paginates");
+  assert.equal(argvFor("/pulls?").includes("--slurp"), false, "array endpoints do not slurp");
   assert.ok(argvFor("/reviews").includes("--paginate"), "reviews paginate");
   assert.ok(argvFor("/deployments").includes("--paginate"), "deployments paginate");
-  assert.equal(argvFor("/check-runs").includes("--paginate"), false, "check-runs must NOT paginate");
-  assert.equal(argvFor("/status").includes("--paginate"), false, "combined status must NOT paginate");
+  assert.ok(argvFor("/check-runs").includes("--paginate"), "check-runs fully paginate (P3.3)");
+  assert.ok(argvFor("/check-runs").includes("--slurp"), "check-runs slurp page envelopes");
+  assert.ok(argvFor("/status").includes("--paginate"), "combined status fully paginates (P3.3)");
+  assert.ok(argvFor("/status").includes("--slurp"), "combined status slurps page envelopes");
 });
 
-test("HIGH-1: combined status requests per_page=100 (single capped page)", async () => {
+test("HIGH-1: combined status requests per_page=100 (page SIZE; pagination is full via --slurp)", async () => {
   const seen: Record<string, readonly string[]> = {};
   const src = new GhApiEvidenceSource(recordingExec(seen) as never);
   await src.getCombinedStatus(REPO, "a".repeat(40));
   const statusPath = Object.keys(seen).find((p) => p.includes("/status"))!;
-  assert.ok(statusPath.includes("per_page=100"), "combined status caps at 100 per page");
+  assert.ok(statusPath.includes("per_page=100"), "combined status uses 100-item pages");
 });
 
 test("HIGH-1: concatenated-JSON parse failure rethrows naming the pagination cause", async () => {

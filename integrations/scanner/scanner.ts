@@ -40,6 +40,14 @@ export interface RawPullRequest {
   headSha: string;
   author: string;
   mergedAt: string | null;
+  /**
+   * OPTIONAL + ADDITIVE (P3.0). The PR title + labels drive backfill's task-type
+   * inference and revert detection. Optional so the frozen P2 scan path (which
+   * never reads them) is byte-unaffected; `parsePullRequests` populates them from
+   * the gh payload, and fixtures may carry them verbatim.
+   */
+  title?: string;
+  labels?: string[];
 }
 
 export interface RawReview {
@@ -113,6 +121,22 @@ export interface RawSecurityAlert {
 }
 
 /**
+ * A LISTED (not yet downloaded) run artifact off the artifacts-list endpoint
+ * (P3.3). Drives artifact AUTO-discovery: `expired` artifacts are skipped (GitHub
+ * retains artifacts ~90 days), and `digest` (`sha256:…`, present where the API
+ * provides it — absent on older gh/API) drives attestation enumeration. A digest
+ * is NEVER fabricated: when the field is absent it stays `undefined` and the
+ * attestation path degrades honestly to `[]`.
+ */
+export interface RawRunArtifact {
+  id: number;
+  name: string;
+  sizeBytes: number;
+  expired: boolean;
+  digest?: string;
+}
+
+/**
  * An unzipped run artifact: a map of file-path -> file-text (Locked decision 3).
  * `gh run download` performs the unzip, so this is the shape the pure artifact
  * parsers (P2.4) consume — ZERO new deps, no manual ZIP handling.
@@ -147,6 +171,8 @@ export interface EvidenceSource {
   ): Promise<RawPullRequest[]>;
   listReviews(repo: RepoRef, prNumber: number): Promise<RawReview[]>;
   listWorkflowRuns(repo: RepoRef, opts?: { headSha?: string }): Promise<RawWorkflowRun[]>;
+  /** List a workflow run's artifacts (P3.3 auto-discovery seam; read-only). */
+  listRunArtifacts(repo: RepoRef, runId: number): Promise<RawRunArtifact[]>;
   listCheckRunsForRef(repo: RepoRef, sha: string): Promise<RawCheckRun[]>;
   getCombinedStatus(repo: RepoRef, sha: string): Promise<RawCombinedStatus>;
   getBranchProtection(repo: RepoRef, branch: string): Promise<RawBranchProtection | null>;
@@ -294,6 +320,40 @@ export function classifyClass(sourceName: string): { evClass: string; checkKind:
     }
   }
   return { evClass: "unknown", checkKind: "gate-only" };
+}
+
+/**
+ * Keyword table for `inferArtifactKind` (P3.3 auto-discovery), ORDERED by priority
+ * (first match wins). The NARROWER signal outranks the broader one — mirrors
+ * `CLASS_RULES`' narrow-before-broad convention:
+ *   - `mutation` first: a Stryker/PIT artifact is often named
+ *     "mutation-test-results", and the broad junit keyword "test-results" must
+ *     never steal it.
+ *   - `coverage` second: "codecov-junit"-style uploads are coverage, not junit.
+ *   - `junit` last (its keywords are the broadest).
+ * Matching is case-insensitive substring; deterministic.
+ */
+const ARTIFACT_KIND_RULES: ReadonlyArray<{
+  kind: "junit" | "coverage" | "mutation";
+  keywords: readonly string[];
+}> = [
+  { kind: "mutation", keywords: ["mutation", "stryker", "pitest"] },
+  { kind: "coverage", keywords: ["coverage", "lcov", "codecov", "cobertura"] },
+  { kind: "junit", keywords: ["junit", "test-results", "test-report", "surefire"] },
+];
+
+/**
+ * Map a run-artifact NAME to the artifact kind the P2.4 parsers consume, or
+ * `null` when the name carries no recognizable signal (such an artifact is
+ * skipped by auto-discovery — never guessed). Deterministic, case-insensitive,
+ * first-match priority per `ARTIFACT_KIND_RULES`. PURE: no I/O, mutates nothing.
+ */
+export function inferArtifactKind(name: string): "junit" | "coverage" | "mutation" | null {
+  const n = name.toLowerCase();
+  for (const rule of ARTIFACT_KIND_RULES) {
+    if (rule.keywords.some((kw) => n.includes(kw))) return rule.kind;
+  }
+  return null;
 }
 
 /**
@@ -600,6 +660,8 @@ export interface RepoFixture {
   files: Record<string, RawFile>; // by path
   securityAlerts: RawSecurityAlert[];
   artifacts: Record<string, ArtifactFiles>; // by `${runId}:${artifactName}`
+  /** OPTIONAL + ADDITIVE (P3.3): listable run artifacts by runId — drives auto-discovery. */
+  runArtifacts?: Record<number, RawRunArtifact[]>;
 }
 
 /** The full injected fixture set, keyed by "owner/repo". */
@@ -649,6 +711,10 @@ export class FixtureEvidenceSource implements EvidenceSource {
     const runs = this.#repoFixture(repo)?.workflowRuns ?? [];
     if (opts?.headSha) return runs.filter((r) => r.headSha === opts.headSha);
     return runs;
+  }
+
+  async listRunArtifacts(repo: RepoRef, runId: number): Promise<RawRunArtifact[]> {
+    return this.#repoFixture(repo)?.runArtifacts?.[runId] ?? [];
   }
 
   async listCheckRunsForRef(repo: RepoRef, sha: string): Promise<RawCheckRun[]> {
@@ -748,6 +814,15 @@ export interface RepoScan {
    * not move for the no-artifact case.
    */
   artifacts?: ScanArtifact[];
+  /**
+   * OPTIONAL + ADDITIVE (P3.3): auto-discovery telemetry, present ONLY when
+   * `collectScan` ran the auto path (no explicit `--artifact` requests supplied).
+   * `found` counts every listed run artifact (incl. expired / kind-less);
+   * `attached` counts the artifacts actually downloaded + bound to the scan.
+   * NOT part of the emitted map — `buildEvidenceMap` never reads it, so the
+   * frozen `recede-evidence-map/1` bytes are unaffected.
+   */
+  autoDiscovery?: { found: number; attached: number };
 }
 
 /** The frozen public artifact contract, `schemaVersion: "recede-evidence-map/1"`. */
@@ -835,7 +910,15 @@ function pendingFromSurface(scan: RepoScan, surface: CheckSurface): PendingEntry
 
 function pendingFromAttestation(scan: RepoScan, att: RawAttestation): PendingEntry {
   const repo = repoKey(scan.repo);
-  const { evClass, checkKind } = classifyClass(att.predicateType);
+  // The REAL attestations API carries no top-level predicate_type (it lives inside
+  // the — often absent — inline bundle), so predicateType is frequently "". The
+  // entry IS an attestation by construction (isSigned is hardcoded true below), so
+  // an empty predicateType falls back to attestation/VERIFY instead of degrading
+  // to unknown/gate-only.
+  const { evClass, checkKind } =
+    att.predicateType === ""
+      ? { evClass: "attestation", checkKind: "VERIFY" as EvCheckKind }
+      : classifyClass(att.predicateType);
   const strength = strengthOf({ discoveredAs: "attestation", isRequired: false, isSigned: true });
   const entry: EvidenceMapEntry = {
     repo,
@@ -1008,6 +1091,11 @@ export function parsePullRequests(data: unknown): RawPullRequest[] {
     const pr = asObject(raw, "pull");
     const head = (pr.head ?? {}) as Record<string, unknown>;
     const user = (pr.user ?? {}) as Record<string, unknown>;
+    const labels = Array.isArray(pr.labels)
+      ? pr.labels
+          .map((l) => (l && typeof l === "object" ? strOr((l as Record<string, unknown>).name, "") : ""))
+          .filter((n) => n.length > 0)
+      : [];
     return {
       number: num(pr.number),
       merged: str(pr.merged_at) !== null,
@@ -1015,6 +1103,8 @@ export function parsePullRequests(data: unknown): RawPullRequest[] {
       headSha: strOr(head.sha, ""),
       author: strOr(user.login, ""),
       mergedAt: str(pr.merged_at),
+      title: strOr(pr.title, ""),
+      labels,
     };
   });
 }
@@ -1047,6 +1137,71 @@ export function parseWorkflowRuns(data: unknown): RawWorkflowRun[] {
       event: strOr(run.event, ""),
     };
   });
+}
+
+/** Parse `gh api …/actions/runs/{id}/artifacts` → `RawRunArtifact[]` (reads the `artifacts` envelope). */
+export function parseRunArtifacts(data: unknown): RawRunArtifact[] {
+  const env = asObject(data, "run artifacts");
+  return asArray(env.artifacts ?? [], "artifacts").map((raw): RawRunArtifact => {
+    const a = asObject(raw, "run artifact");
+    // `digest` is present on newer API responses only; absent → undefined. NEVER
+    // fabricated — a missing digest simply skips attestation enumeration.
+    const digest = str(a.digest);
+    return {
+      id: num(a.id),
+      name: strOr(a.name, ""),
+      sizeBytes: num(a.size_in_bytes),
+      expired: a.expired === true,
+      ...(digest !== null ? { digest } : {}),
+    };
+  });
+}
+
+/**
+ * Merge a `gh api --paginate --slurp` response for an OBJECT-envelope endpoint
+ * (P3.3). `--slurp` wraps each page's envelope OBJECT in one top-level JSON
+ * ARRAY; this flat-merges the nested `key` arrays across the page envelopes and
+ * returns ONE synthetic envelope (scalar fields — e.g. combined status `sha`/
+ * `state` — carried from the FIRST page) so the existing single-envelope parsers
+ * consume it unchanged. Fail-loud: a non-array shape, and a page envelope whose
+ * `key` is MISSING or null, name the pagination cause — a garbled response or a
+ * renamed envelope key must NEVER read as an empty inventory. Items that carry an
+ * `id` (runs, artifacts, check-runs) are deduped across page boundaries
+ * (first-occurrence-wins — pages can shift under a live listing); id-less items
+ * pass through untouched. PURE.
+ */
+export function mergeSlurpPages(data: unknown, key: string, what: string): Record<string, unknown> {
+  if (!Array.isArray(data)) {
+    throw new Error(
+      `gh ${what}: --slurp pagination expected an ARRAY of page envelopes, got ` +
+        `${data === null ? "null" : typeof data} — the endpoint response shape does not match slurp output`,
+    );
+  }
+  const merged: unknown[] = [];
+  const seenIds = new Set<number | string>();
+  let first: Record<string, unknown> = {};
+  data.forEach((page, i) => {
+    const env = asObject(page, `${what} page ${i}`);
+    if (i === 0) first = env;
+    if (!(key in env) || env[key] === null) {
+      throw new Error(
+        `gh ${what}: --slurp pagination page ${i} has no '${key}' array — a missing/renamed ` +
+          `envelope key must never read as an empty inventory`,
+      );
+    }
+    for (const item of asArray(env[key], `${what}.${key}`)) {
+      const id =
+        item !== null && typeof item === "object" && !Array.isArray(item)
+          ? (item as Record<string, unknown>).id
+          : undefined;
+      if (typeof id === "number" || typeof id === "string") {
+        if (seenIds.has(id)) continue; // page-boundary duplicate: first occurrence wins
+        seenIds.add(id);
+      }
+      merged.push(item);
+    }
+  });
+  return { ...first, [key]: merged };
 }
 
 /** Parse `gh api …/commits/{sha}/check-runs` → `RawCheckRun[]` (reads the `check_runs` envelope). */
@@ -1110,19 +1265,44 @@ export function parseDeployments(data: unknown): RawDeployment[] {
 }
 
 /**
+ * Decode an INLINE attestation bundle's `dsseEnvelope.payload` (base64 JSON
+ * in-toto statement) and read its `predicateType`. PURE + fail-safe: any
+ * malformed shape/base64/JSON degrades to `""` — never throws, never fabricates.
+ */
+function predicateTypeFromBundle(bundle: unknown): string {
+  try {
+    if (bundle === null || typeof bundle !== "object") return "";
+    const envelope = (bundle as Record<string, unknown>).dsseEnvelope;
+    if (envelope === null || typeof envelope !== "object") return "";
+    const payload = (envelope as Record<string, unknown>).payload;
+    if (typeof payload !== "string") return "";
+    const stmt = JSON.parse(Buffer.from(payload, "base64").toString("utf8")) as unknown;
+    if (stmt === null || typeof stmt !== "object") return "";
+    const pt = (stmt as Record<string, unknown>).predicateType;
+    return typeof pt === "string" ? pt : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Parse a `gh api …/attestations/{subject_digest}` response → `RawAttestation[]`.
- * The subject digest is passed in (it keyed the query). Reads `predicate_type`
- * and any `bundle_url` off each attestation entry.
+ * The subject digest is passed in (it keyed the query). LIVE-VERIFIED shape: a
+ * real response item is `{bundle, bundle_url, initiator, repository_id}` — there
+ * is NO top-level `predicate_type` (it lives inside `bundle.dsseEnvelope.payload`,
+ * and `bundle` can be null). So: prefer a top-level `predicate_type` when present
+ * (older/alternate shapes), else decode the inline bundle payload, else `""`
+ * (classification falls back to `attestation` downstream — see
+ * `pendingFromAttestation`).
  */
 export function parseAttestations(data: unknown, subjectDigest: string): RawAttestation[] {
   const env = asObject(data, "attestations");
   return asArray(env.attestations ?? [], "attestations").map((raw): RawAttestation => {
     const a = asObject(raw, "attestation");
-    // LOW-4: `predicate_type` / `bundle_url` shape here is inferred; verify against real
-    // gh when gh-path attestation enumeration lands in P3.
+    const topLevel = str(a.predicate_type);
     return {
       subjectDigest,
-      predicateType: strOr(a.predicate_type, ""),
+      predicateType: topLevel ?? predicateTypeFromBundle(a.bundle),
       bundleUrl: str(a.bundle_url),
     };
   });
@@ -1241,15 +1421,14 @@ export class GhApiEvidenceSource implements EvidenceSource {
   /**
    * Run a `gh api <path>` read and JSON.parse it.
    *
-   * `--paginate` is safe ONLY for top-level-ARRAY endpoints (/pulls, /reviews,
-   * /deployments): gh concatenates each page's array into one and a single
-   * JSON.parse works. For OBJECT-envelope endpoints (check-runs, combined
-   * status, actions/runs, attestations) `--paginate` emits CONCATENATED objects
-   * that JSON.parse cannot read, so those callers pass `paginate: false` and
-   * rely on `per_page=100` — a single page, capped at 100 items per SHA
-   * (a documented P2 limitation; full pagination of envelope endpoints is P3).
-   * The parse is wrapped so a concatenated-JSON failure rethrows naming the
-   * pagination cause rather than a bare SyntaxError.
+   * Bare `--paginate` is safe ONLY for top-level-ARRAY endpoints (/pulls,
+   * /reviews, /deployments): gh concatenates each page's array into one and a
+   * single JSON.parse works. OBJECT-envelope endpoints (check-runs, combined
+   * status, actions/runs, run artifacts, attestations) go through `#apiSlurp`
+   * instead (P3.3): `--paginate --slurp` wraps the page envelopes in one JSON
+   * array and `mergeSlurpPages` flat-merges the nested arrays — full pagination,
+   * no single-page cap. The parse is wrapped so a concatenated-JSON failure
+   * rethrows naming the pagination cause rather than a bare SyntaxError.
    */
   async #api(path: string, opts?: { soft404?: boolean; paginate?: boolean }): Promise<unknown> {
     const args = opts?.paginate ? ["api", path, "--paginate"] : ["api", path];
@@ -1260,10 +1439,37 @@ export class GhApiEvidenceSource implements EvidenceSource {
     } catch (err) {
       throw new Error(
         `gh api ${path}: could not JSON.parse the response — likely a pagination fault: this ` +
-          `endpoint emitted concatenated JSON across pages. Object-envelope endpoints must NOT ` +
-          `use --paginate. Original: ${err instanceof Error ? err.message : String(err)}`,
+          `endpoint emitted concatenated JSON across pages. Object-envelope endpoints must ` +
+          `use --paginate --slurp (#apiSlurp). Original: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  /**
+   * Run a fully-paginated `gh api <path> --paginate --slurp` read of an
+   * OBJECT-envelope endpoint and merge the page envelopes' nested `key` arrays
+   * via `mergeSlurpPages` into ONE synthetic envelope (P3.3 — replaces the old
+   * single-page `per_page=100` cap). Returns `null` only on a soft 404.
+   * Fail-loud: an unparseable or non-array shape names the pagination cause.
+   */
+  async #apiSlurp(
+    path: string,
+    key: string,
+    what: string,
+    opts?: { soft404?: boolean },
+  ): Promise<Record<string, unknown> | null> {
+    const out = await this.#gh(["api", path, "--paginate", "--slurp"], opts);
+    if (out === null) return null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(out) as unknown;
+    } catch (err) {
+      throw new Error(
+        `gh api ${path}: could not JSON.parse the --slurp pagination output (expected one JSON ` +
+          `array of page envelopes). Original: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return mergeSlurpPages(parsed, key, what);
   }
 
   async listPullRequests(
@@ -1292,25 +1498,46 @@ export class GhApiEvidenceSource implements EvidenceSource {
   }
 
   async listWorkflowRuns(repo: RepoRef, opts?: { headSha?: string }): Promise<RawWorkflowRun[]> {
-    // OBJECT-envelope endpoint ({total_count,workflow_runs[]}): NO --paginate.
+    // OBJECT-envelope endpoint ({total_count,workflow_runs[]}): fully paginated
+    // via --paginate --slurp (P3.3); per_page=100 sets the page SIZE only.
+    // Scope note: slurping this endpoint exceeded the plan's "two endpoints" line;
+    // it is safe because collectScan always calls it head_sha-filtered (bounded).
     const q = opts?.headSha ? `?head_sha=${this.#seg(opts.headSha, "headSha")}&per_page=100` : "?per_page=100";
-    const data = await this.#api(`repos/${this.#slug(repo)}/actions/runs${q}`);
+    const data = await this.#apiSlurp(`repos/${this.#slug(repo)}/actions/runs${q}`, "workflow_runs", "workflow runs");
     return parseWorkflowRuns(data);
   }
 
+  async listRunArtifacts(repo: RepoRef, runId: number): Promise<RawRunArtifact[]> {
+    if (!Number.isInteger(runId)) throw new Error(`unsafe runId '${runId}'`);
+    // OBJECT-envelope endpoint ({total_count,artifacts[]}): fully paginated (P3.3).
+    const data = await this.#apiSlurp(
+      `repos/${this.#slug(repo)}/actions/runs/${runId}/artifacts?per_page=100`,
+      "artifacts",
+      "run artifacts",
+    );
+    return parseRunArtifacts(data);
+  }
+
   async listCheckRunsForRef(repo: RepoRef, sha: string): Promise<RawCheckRun[]> {
-    // OBJECT-envelope endpoint ({total_count,check_runs[]}): NO --paginate. per_page=100
-    // caps at a single page of up to 100 check-runs per SHA (documented P2 limitation).
-    const data = await this.#api(`repos/${this.#slug(repo)}/commits/${this.#seg(sha, "sha")}/check-runs?per_page=100`);
+    // OBJECT-envelope endpoint ({total_count,check_runs[]}): fully paginated via
+    // --paginate --slurp (P3.3) — a SHA with >100 check-runs is no longer truncated.
+    const data = await this.#apiSlurp(
+      `repos/${this.#slug(repo)}/commits/${this.#seg(sha, "sha")}/check-runs?per_page=100`,
+      "check_runs",
+      "check runs",
+    );
     return parseCheckRuns(data);
   }
 
   async getCombinedStatus(repo: RepoRef, sha: string): Promise<RawCombinedStatus> {
-    // OBJECT-envelope endpoint ({sha,state,statuses[]}): NO --paginate (concatenated
-    // objects would crash JSON.parse). per_page=100 caps the statuses at a single
-    // page per SHA — a documented P2 limitation (full pagination of the statuses
-    // array is P3).
-    const data = await this.#api(`repos/${this.#slug(repo)}/commits/${this.#seg(sha, "sha")}/status?per_page=100`);
+    // OBJECT-envelope endpoint ({sha,state,statuses[]}): fully paginated via
+    // --paginate --slurp (P3.3); `sha`/`state` carry from the first page envelope,
+    // the statuses arrays flat-merge across pages.
+    const data = await this.#apiSlurp(
+      `repos/${this.#slug(repo)}/commits/${this.#seg(sha, "sha")}/status?per_page=100`,
+      "statuses",
+      "combined status",
+    );
     return parseCombinedStatus(data);
   }
 
@@ -1332,8 +1559,11 @@ export class GhApiEvidenceSource implements EvidenceSource {
   async listAttestations(repo: RepoRef, subjectDigest: string): Promise<RawAttestation[]> {
     // subjectDigest may contain a ':' (sha256:…); it is a query arg, never a path segment.
     const digest = encodeURIComponent(subjectDigest);
-    // OBJECT-envelope endpoint ({attestations[]}): NO --paginate.
-    const data = await this.#api(`repos/${this.#slug(repo)}/attestations/${digest}`, { soft404: true });
+    // OBJECT-envelope endpoint ({attestations[]}): fully paginated via
+    // --paginate --slurp (P3.3). soft404 → [] (no attestations for the digest).
+    const data = await this.#apiSlurp(`repos/${this.#slug(repo)}/attestations/${digest}`, "attestations", "attestations", {
+      soft404: true,
+    });
     return data === null ? [] : parseAttestations(data, subjectDigest);
   }
 
@@ -1424,6 +1654,9 @@ export class McpEvidenceSource implements EvidenceSource {
   listWorkflowRuns(): Promise<RawWorkflowRun[]> {
     throw new NotConnectedError("listWorkflowRuns");
   }
+  listRunArtifacts(): Promise<RawRunArtifact[]> {
+    throw new NotConnectedError("listRunArtifacts");
+  }
   listCheckRunsForRef(): Promise<RawCheckRun[]> {
     throw new NotConnectedError("listCheckRunsForRef");
   }
@@ -1466,14 +1699,16 @@ export class McpEvidenceSource implements EvidenceSource {
 //     documented CODEOWNERS+review edge case) — WITHOUT touching the frozen pure layer.
 //   - a CODEOWNERS file → a synthesized `CODEOWNERS` surface.
 //   - deployments → one `deploy/<env>` surface each.
-//   - OPTIONAL caller-supplied artifacts → downloaded via the seam and attached with
-//     `linkSha` set (gotcha 2). Artifact-NAME discovery is out of the frozen seam, so
-//     the caller (CLI/smoke) names them; when none are requested the RepoScan is
+//   - artifacts (P3.3): EXPLICIT caller-supplied requests are downloaded via the
+//     seam and attached with `linkSha` set (gotcha 2). When the caller supplies
+//     NONE, artifacts are AUTO-discovered: each workflow run's artifacts at the
+//     snapshotted SHAs are listed, kinds inferred by name (`inferArtifactKind`),
+//     expired + kind-less ones skipped. A scan that yields no artifacts stays
 //     artifact-free and byte-identical to the P2.3 contract.
+//   - attestations (P3.3): auto-discovered artifacts' `digest` fields drive
+//     `listAttestations(repo, subjectDigest)`; a digest-less response degrades
+//     honestly to `attestations: []` (never a fabricated digest).
 //
-// Attestation ENUMERATION needs an artifact subject-digest a repo-walk does not
-// surface, so `collectScan` leaves `attestations: []` on the gh path (the seam
-// method is implemented + callable with a digest; fixtures can still inject them).
 // `discoveredVia` is read off the source (each adapter advertises its provenance).
 // ---------------------------------------------------------------------------
 
@@ -1531,8 +1766,14 @@ export async function collectScan(
     state: opts?.prState ?? "merged",
     since: opts?.since,
   });
+  // The snapshot SHAs checks were fetched at — auto-discovery (below) only
+  // enumerates runs at these SHAs, because an artifact can only attach to a
+  // surface that exists at its linkSha (gotcha 2); other runs would download
+  // artifacts that can never attach.
+  const snapshotShas = new Set<string>();
   for (const pr of prs) {
     const sha = pr.mergeCommitSha ?? pr.headSha;
+    snapshotShas.add(sha);
     const [checkRuns, combined, reviews] = await Promise.all([
       source.listCheckRunsForRef(repo, sha),
       source.getCombinedStatus(repo, sha),
@@ -1570,12 +1811,94 @@ export async function collectScan(
     });
   }
 
+  // Artifact requests: EXPLICIT caller-supplied requests take full precedence —
+  // when `opts.artifacts` is supplied (even empty) auto-discovery does NOT run.
+  // Otherwise (P3.3) AUTO-discover: enumerate each snapshot SHA's workflow runs
+  // (head_sha-FILTERED at the API — never the repo's full run history), list each
+  // run's artifacts, infer kinds by name, skip expired + kind-less ones, and bind
+  // requests with linkSha from the run's headSha (gotcha 2). The link surface
+  // NAME cannot be `run.name` (that is the WORKFLOW name, e.g. "CI"; check-run
+  // surfaces carry JOB names, e.g. "unit-tests"): it is derived from the
+  // check-run surface at the run's headSha whose Actions detailsUrl embeds the
+  // run id (…/actions/runs/{runId}/job/{jobId}) — first match, deterministically
+  // sorted. `run.name` is the fallback ONLY when no detailsUrl-matched surface
+  // exists; a run whose artifact could attach to NO surface is skipped entirely
+  // (visible as found > attached).
+  const requests: ArtifactRequest[] = [...(opts?.artifacts ?? [])];
+  const digests = new Set<string>();
+  let autoDiscovery: RepoScan["autoDiscovery"];
+  if (opts?.artifacts === undefined) {
+    let found = 0;
+    // HIGH-3: per-SHA head_sha-filtered listing keeps the walk bounded by the PR
+    // snapshot set — which also makes --paginate --slurp on the runs endpoint safe
+    // (the plan's "two endpoints, stop-and-flag" scope note is honored: the slurp
+    // can only ever page over one SHA's runs, never the full history).
+    const runs: RawWorkflowRun[] = [];
+    for (const sha of [...snapshotShas].sort()) {
+      runs.push(...(await source.listWorkflowRuns(repo, { headSha: sha })));
+    }
+    for (const run of runs) {
+      const marker = `/actions/runs/${run.id}/`;
+      const linked = [
+        ...new Set(
+          surfaces
+            .filter(
+              (s) =>
+                s.kind === "check-run" &&
+                s.sha === run.headSha &&
+                s.detailsUrl !== null &&
+                s.detailsUrl.includes(marker),
+            )
+            .map((s) => s.name),
+        ),
+      ].sort();
+      const linkSurfaceName =
+        linked.length > 0
+          ? linked[0]
+          : surfaces.some((s) => s.sha === run.headSha && s.name === run.name)
+            ? run.name
+            : null;
+      for (const art of await source.listRunArtifacts(repo, run.id)) {
+        found += 1;
+        // Deliberate skip: attestations outlive artifacts, but an EXPIRED artifact is
+        // unverifiable — its digest is not consulted (evidence recall reduced, honest).
+        if (art.expired) continue;
+        // Attestation enumeration (P3.3 item 2): attestations attach to build
+        // ARTIFACT digests. Collect each available digest; when the response
+        // carries NO digest field (older gh/API) we degrade honestly —
+        // attestations stay [] below, a digest is never fabricated.
+        if (art.digest) digests.add(art.digest);
+        // Kind inference is name-only; a misnamed junit/coverage artifact parses null
+        // downstream and is dropped — no cross-kind fallback parse (deferred; visible
+        // as a lower withArtifact count).
+        const kind = inferArtifactKind(art.name);
+        if (kind === null) continue;
+        if (linkSurfaceName === null) continue; // zero-match: could never attach — skipped
+        requests.push({ runId: run.id, name: art.name, kind, linkSurfaceName, linkSha: run.headSha });
+      }
+    }
+    autoDiscovery = { found, attached: 0 };
+  }
+
   const artifacts: ScanArtifact[] = [];
-  for (const req of opts?.artifacts ?? []) {
+  for (const req of requests) {
     const files = await source.downloadRunArtifact(repo, req.runId, req.name);
     if (files) {
       artifacts.push({ files, kind: req.kind, linkSurfaceName: req.linkSurfaceName, linkSha: req.linkSha });
+    } else if (opts?.artifacts !== undefined) {
+      // The operator named this request by hand — say WHICH one died (absent/expired).
+      console.error(
+        `recede-scout: --artifact ${req.runId}:${req.name} downloaded nothing (absent or expired) — skipped`,
+      );
     }
+  }
+  if (autoDiscovery) autoDiscovery.attached = artifacts.length;
+
+  // Digest-driven attestation enumeration (auto path only — explicit requests
+  // carry no digest). Deterministic order: digests sorted code-unit.
+  const attestations: RawAttestation[] = [];
+  for (const digest of [...digests].sort()) {
+    attestations.push(...(await source.listAttestations(repo, digest)));
   }
 
   return {
@@ -1583,10 +1906,8 @@ export async function collectScan(
     discoveredVia,
     surfaces,
     requiredChecks: [...requiredSet],
-    // gh-path attestation ENUMERATION is P3 (needs artifact subject digests a repo-walk
-    // can't surface); the pure `parseAttestations` support + the `listAttestations` seam
-    // are ready and callable with a digest, but we do not force a digest-walk here.
-    attestations: [],
+    attestations,
     ...(artifacts.length > 0 ? { artifacts } : {}),
+    ...(autoDiscovery ? { autoDiscovery } : {}),
   };
 }

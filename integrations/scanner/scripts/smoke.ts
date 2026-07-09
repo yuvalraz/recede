@@ -30,6 +30,9 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   GhApiEvidenceSource,
   collectScan,
@@ -38,6 +41,8 @@ import {
   parseArtifactSpec,
   type ArtifactRequest,
 } from "../scanner.ts";
+import { FileLedger } from "../../../reference/ts/src/index.ts";
+import { runBackfill } from "../backfill.ts";
 
 const execFileAsync = promisify(execFile);
 const REQUIRED_ACCOUNT = "yuvalraz";
@@ -56,11 +61,14 @@ async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const artifacts: ArtifactRequest[] = [];
   let target = "yuvalraz/recede";
+  let backfill = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--artifact") {
       const spec = argv[++i];
       if (spec === undefined) throw new Error("--artifact needs a runId:name:kind:surface:sha value");
       artifacts.push(parseArtifactSpec(spec));
+    } else if (argv[i] === "--backfill") {
+      backfill = true;
     } else {
       target = argv[i];
     }
@@ -90,7 +98,34 @@ async function main(): Promise<void> {
   console.log(`recede-scout smoke: account=${login} target=${target} (public) — scanning read-only…\n`);
 
   const source = new GhApiEvidenceSource();
-  const scan = await collectScan(source, { owner, repo: repoName }, { prState: "merged", artifacts });
+
+  // --backfill: replay merge history into a THROWAWAY ledger under the OS tmp dir
+  // (NEVER the repo tree — the ledger is personal STATE_DIR data). Same OPSEC
+  // guards (public, self-owned, active-account) already passed above.
+  if (backfill) {
+    const dir = mkdtempSync(join(tmpdir(), "recede-backfill-smoke-"));
+    const ledgerPath = join(dir, "ledger.jsonl");
+    try {
+      console.log(`recede-scout backfill smoke: ${target} → ${ledgerPath} (throwaway, tmp)\n`);
+      const report = await runBackfill(source, { owner, repo: repoName }, new FileLedger(ledgerPath));
+      console.log(
+        `backfill OK — reconstructed ${report.reconstructed} across ${report.lanes} lane(s), ` +
+          `${report.reverts} revert(s), folded under ${report.policy.id}@${report.policy.version}.`,
+      );
+      console.log("reconstructed, unsealed, from API state as of backfill. Ledger discarded below.");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    return;
+  }
+
+  // Leave `artifacts` UNSUPPLIED when no --artifact flag was given, so the live
+  // smoke exercises AUTO-discovery (an explicit empty array would suppress it).
+  const scan = await collectScan(
+    source,
+    { owner, repo: repoName },
+    { prState: "merged", ...(artifacts.length > 0 ? { artifacts } : {}) },
+  );
   const map = buildEvidenceMap([scan], { now: new Date().toISOString() });
   const policy = emitStarterPolicy(map, { mode: "all-equal" });
 

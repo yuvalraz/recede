@@ -216,6 +216,42 @@ test("parseAttestations: maps predicate type + bundle url", () => {
   assert.equal(atts[0].bundleUrl, "https://example.test/att/1");
 });
 
+test("parseAttestations: REAL API shape (bundle:null, bundle_url, no predicate_type key) → predicateType ''", () => {
+  // Live-proven real response item shape: {bundle, bundle_url, initiator, repository_id} —
+  // there is NO top-level predicate_type (it lives inside bundle.dsseEnvelope.payload).
+  const json = JSON.stringify({
+    attestations: [
+      { bundle: null, bundle_url: "https://api.github.com/att/dl/1", initiator: "github-actions", repository_id: 99 },
+    ],
+  });
+  const atts = scanner.parseAttestations(JSON.parse(json), "sha256:deadbeef");
+  assert.equal(atts.length, 1);
+  assert.equal(atts[0].predicateType, "", "no top-level key and no inline bundle → honest ''");
+  assert.equal(atts[0].bundleUrl, "https://api.github.com/att/dl/1");
+});
+
+test("parseAttestations: an INLINE bundle's dsseEnvelope payload yields the real predicateType", () => {
+  const stmt = { _type: "https://in-toto.io/Statement/v1", predicateType: "https://slsa.dev/provenance/v1" };
+  const payload = Buffer.from(JSON.stringify(stmt), "utf8").toString("base64");
+  const json = JSON.stringify({
+    attestations: [{ bundle: { dsseEnvelope: { payload } }, bundle_url: null }],
+  });
+  const atts = scanner.parseAttestations(JSON.parse(json), "sha256:deadbeef");
+  assert.equal(atts[0].predicateType, "https://slsa.dev/provenance/v1", "decoded from the in-toto statement");
+});
+
+test("parseAttestations: a malformed inline bundle payload fails safe to ''", () => {
+  const json = JSON.stringify({
+    attestations: [
+      { bundle: { dsseEnvelope: { payload: "not!!base64-json@@" } }, bundle_url: null },
+      { bundle: { dsseEnvelope: { payload: 42 } }, bundle_url: null },
+      { bundle: "garbage", bundle_url: null },
+    ],
+  });
+  const atts = scanner.parseAttestations(JSON.parse(json), "sha256:deadbeef");
+  assert.deepEqual(atts.map((a) => a.predicateType), ["", "", ""], "never throws, never fabricates");
+});
+
 test("parse functions are fail-loud on a non-array/non-object where a shape is required", () => {
   // A garbled gh payload must not silently read as an empty inventory.
   assert.throws(() => scanner.parsePullRequests("not-an-array" as unknown), /expected an array/i);

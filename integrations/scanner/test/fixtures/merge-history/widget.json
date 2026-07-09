@@ -1,0 +1,48 @@
+{
+  "acme/widget": {
+    "pullRequests": [
+      { "number": 1, "merged": true, "mergeCommitSha": "1000000000000000000000000000000000000000", "headSha": "a100000000000000000000000000000000000000", "author": "octo-dev", "mergedAt": "2026-04-01T00:00:00Z", "title": "Fix off-by-one in pager", "labels": [] },
+      { "number": 2, "merged": true, "mergeCommitSha": "2000000000000000000000000000000000000000", "headSha": "a200000000000000000000000000000000000000", "author": "octo-dev", "mergedAt": "2026-04-03T00:00:00Z", "title": "Add CSV export", "labels": [] },
+      { "number": 3, "merged": true, "mergeCommitSha": "3000000000000000000000000000000000000000", "headSha": "a300000000000000000000000000000000000000", "author": "octo-dev", "mergedAt": "2026-04-08T00:00:00Z", "title": "Revert \"Add CSV export\"", "labels": [] },
+      { "number": 4, "merged": true, "mergeCommitSha": "4000000000000000000000000000000000000000", "headSha": "a400000000000000000000000000000000000000", "author": "dependabot[bot]", "mergedAt": "2026-04-02T00:00:00Z", "title": "Fix vulnerable dep lodash", "labels": ["dependencies"] },
+      { "number": 5, "merged": true, "mergeCommitSha": "5000000000000000000000000000000000000000", "headSha": "a500000000000000000000000000000000000000", "author": "dependabot[bot]", "mergedAt": "2026-04-04T00:00:00Z", "title": "Fix vulnerable dep axios", "labels": ["dependencies"] },
+      { "number": 6, "merged": true, "mergeCommitSha": "6000000000000000000000000000000000000000", "headSha": "a600000000000000000000000000000000000000", "author": "dependabot[bot]", "mergedAt": "2026-04-06T00:00:00Z", "title": "Fix vulnerable dep semver", "labels": ["dependencies"] }
+    ],
+    "reviews": {
+      "2": [{ "prNumber": 2, "state": "APPROVED", "author": "rev-one", "submittedAt": "2026-04-03T00:00:00Z" }]
+    },
+    "workflowRuns": [],
+    "checkRuns": {
+      "1000000000000000000000000000000000000000": [
+        { "name": "unit-tests", "headSha": "1000000000000000000000000000000000000000", "conclusion": "success", "status": "completed", "detailsUrl": null, "app": null },
+        { "name": "eslint", "headSha": "1000000000000000000000000000000000000000", "conclusion": "success", "status": "completed", "detailsUrl": null, "app": null }
+      ],
+      "2000000000000000000000000000000000000000": [
+        { "name": "unit-tests", "headSha": "2000000000000000000000000000000000000000", "conclusion": "success", "status": "completed", "detailsUrl": null, "app": null },
+        { "name": "playwright-e2e", "headSha": "2000000000000000000000000000000000000000", "conclusion": "success", "status": "completed", "detailsUrl": null, "app": null }
+      ],
+      "3000000000000000000000000000000000000000": [
+        { "name": "unit-tests", "headSha": "3000000000000000000000000000000000000000", "conclusion": "success", "status": "completed", "detailsUrl": null, "app": null }
+      ],
+      "4000000000000000000000000000000000000000": [
+        { "name": "unit-tests", "headSha": "4000000000000000000000000000000000000000", "conclusion": "success", "status": "completed", "detailsUrl": null, "app": null },
+        { "name": "codeql", "headSha": "4000000000000000000000000000000000000000", "conclusion": "success", "status": "completed", "detailsUrl": null, "app": null }
+      ],
+      "5000000000000000000000000000000000000000": [
+        { "name": "unit-tests", "headSha": "5000000000000000000000000000000000000000", "conclusion": "success", "status": "completed", "detailsUrl": null, "app": null },
+        { "name": "eslint", "headSha": "5000000000000000000000000000000000000000", "conclusion": "success", "status": "completed", "detailsUrl": null, "app": null }
+      ],
+      "6000000000000000000000000000000000000000": [
+        { "name": "unit-tests", "headSha": "6000000000000000000000000000000000000000", "conclusion": "success", "status": "completed", "detailsUrl": null, "app": null },
+        { "name": "eslint", "headSha": "6000000000000000000000000000000000000000", "conclusion": "success", "status": "completed", "detailsUrl": null, "app": null }
+      ]
+    },
+    "combinedStatus": {},
+    "branchProtection": {},
+    "deployments": [],
+    "attestations": {},
+    "files": {},
+    "securityAlerts": [],
+    "artifacts": {}
+  }
+}
