@@ -29,7 +29,7 @@
  */
 
 import { parseArgs } from "node:util";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import {
   FileLedger,
   coldStart,
@@ -54,6 +54,8 @@ import {
   DEFAULT_TASK_RISK,
   type Cc10xPhaseSignal,
 } from "./cc10x-adapter.ts";
+import { buildReadiness, renderMarkdown } from "./readiness.ts";
+import type { EvidenceMap } from "../scanner/scanner.ts";
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -81,6 +83,13 @@ staged adoption (--mode):
   node cli.ts reseal --ledger <path> --warrant <id or unique prefix>
                      --outcome reverted|success --source "<ground truth>"
   node cli.ts status --ledger <path> [--actor <id>] [--task <task-type>]
+  node cli.ts matrix --ledger <path> [--map <path>] [--out <path>] [--md-out <path>]
+       The readiness landscape (recede-readiness/1): every (actor, task-type)
+       lane x risk class — posture, binding constraint, cheapest move. Markdown
+       to stdout by default; --out writes the JSON artifact, --md-out redirects
+       the markdown to a file. --map embeds a recede-scout evidence map
+       (repo-level block only; lanes are never joined to it). Fail-closed:
+       any lane failing I2 replay integrity -> exit 1, NOTHING written.
 
 task types with default risk:
 ${Object.entries(DEFAULT_TASK_RISK)
@@ -440,6 +449,64 @@ function cmdStatus(args: string[]): void {
 }
 
 // ---------------------------------------------------------------------------
+// matrix — the readiness landscape (recede-readiness/1)
+// ---------------------------------------------------------------------------
+
+function cmdMatrix(args: string[]): void {
+  const { values: v } = parseArgs({
+    args,
+    strict: true,
+    options: {
+      ledger: { type: "string" },
+      map: { type: "string" },
+      out: { type: "string" },
+      "md-out": { type: "string" },
+    },
+  });
+  const ledgerPath = need(v.ledger, "--ledger");
+  const policy = ledgerPolicy(ledgerPath);
+  const ledger = new FileLedger(ledgerPath);
+
+  let map: EvidenceMap | undefined;
+  if (v.map) {
+    const raw = JSON.parse(readFileSync(v.map, "utf8")) as { schemaVersion?: string };
+    if (raw.schemaVersion !== "recede-evidence-map/1") {
+      fail(
+        `unrecognized evidence-map schema '${raw.schemaVersion}' in ${v.map} ` +
+          `(expected 'recede-evidence-map/1')`,
+      );
+    }
+    map = raw as EvidenceMap;
+  }
+
+  // The ONE place the clock enters — the pure core stays clockless (I7).
+  const readiness = buildReadiness(ledger, policy, {
+    ...(map ? { map } : {}),
+    now: new Date().toISOString(),
+  });
+
+  // Fail-closed I2: a lane whose stored trust does not replay is corrupted
+  // evidence — publishing a landscape over it would launder the corruption.
+  // Checked on the built artifact BEFORE anything is written or printed.
+  const bad = readiness.lanes.filter((l) => l.i2 === "FAIL");
+  if (bad.length > 0) {
+    console.error("I2 REPLAY INTEGRITY FAIL — nothing was written.");
+    for (const l of bad) {
+      console.error(
+        `  lane (${l.actor}, ${l.task_type}): stored trust != replay() ` +
+          `under policy ${policy.id}@${policy.version}`,
+      );
+    }
+    process.exit(1);
+  }
+
+  const md = renderMarkdown(readiness);
+  if (v.out) writeFileSync(v.out, JSON.stringify(readiness, null, 2) + "\n");
+  if (v["md-out"]) writeFileSync(v["md-out"], md);
+  else process.stdout.write(md);
+}
+
+// ---------------------------------------------------------------------------
 // dispatch
 // ---------------------------------------------------------------------------
 
@@ -449,6 +516,7 @@ try {
   if (cmd === "record") await cmdRecord(rest);
   else if (cmd === "reseal") cmdReseal(rest);
   else if (cmd === "status") cmdStatus(rest);
+  else if (cmd === "matrix") cmdMatrix(rest);
   else {
     console.error(USAGE);
     process.exit(cmd === undefined || cmd === "help" || cmd === "--help" ? 0 : 1);

@@ -69,18 +69,40 @@ I2 replay integrity: PASS — replay() == stored trust for 3/3 lanes (policy rec
 
 `status` is policy-aware: it reads the `.policy.json` sidecar the backfill wrote next to the ledger and replays under the same v0.2 pooled policy the fold used, so `I2 replay integrity: PASS` here verifies the backfilled ledger directly (exit 0). Keep the sidecar next to the ledger; a tampered or mismatched sidecar makes `status` refuse loudly. One caveat for old ledgers: without a sidecar, `status` replays under the v0.1 coding policy (the pre-sidecar default), so a v0.2 backfilled ledger that lost its sidecar reads FAIL there.
 
-## Step 4: render the click
+## Step 4: render the readiness matrix (the landscape)
+
+```bash
+node integrations/cc10x/cli.ts matrix \
+  --ledger ~/.recede/state/<owner>-<repo>.backfill.jsonl \
+  --out readiness.json
+```
+
+One table: rows are lanes, columns are your policy's risk classes, each cell is the gate posture today. Every checkpoint cell carries a footnote with two facts: the binding constraint (what holds it) and the cheapest move (how many clean cycles flip it, computed against your declared policy, no idle decay assumed). NEVER cells are the never-recede floor, by design; their move is none. Expected shape (real output from the bundled fixture):
+
+```
+policy recede.reference@0.2.0 (digest sha256:81c120c2ff2d) · generated <ISO>
+3 lanes · 12 cells: 0 autonomous · 0 checkpoint(brief) · 9 checkpoint(full) · 3 never-recede
+(counts, never averaged — per-lane posture only)
+
+| lane | tier | score | conf | n | updated | i2 | read.only | reversible.low | financial.reversible | irreversible.critical |
+|---|---|---|---|---|---|---|---|---|---|---|
+| dependabot[bot] · code.fix * | T0 | 0.246 | 0.283 | 3 | 2026-04-06T00:00:00Z | PASS | cp(full) [1] | cp(full) [2] | cp(full) [3] | NEVER |
+```
+
+Embed the full rendered matrix in `path.md` as the centerpiece. It is the landscape view: where review can recede today, what holds each cell, and the cheapest honest move. `matrix` is fail-closed: if any lane fails I2 replay it exits 1 and writes nothing. `readiness.json` is the durable artifact (schema `recede-readiness/1`); the markdown is a disposable render of it.
+
+## Step 5: render the click
 
 Lead with the ledger, in this order:
 
-1. The lanes: per `(actor, task_type)`, non-zero `sample_count`, reconstructed from merges they already made.
+1. The matrix from step 4: the whole landscape in one table, posture per lane per risk class.
 2. The reverts: already sealed `REVERTED`, and the demoted lane that proves trust here can fall, not only rise.
-3. The gate posture per risk class, per lane: what would checkpoint and what would run autonomous, today, under the placeholder policy.
+3. The footnotes: what holds each checkpoint cell, and the cheapest move that flips it.
 4. The integrity line from step 2: `I2 replay integrity: PASS`, replay-verified, not asserted.
 
 Then the inventory numbers from `/recede-scan`, as supporting detail. Never open with them.
 
-## Step 5: emit path.md
+## Step 6: emit path.md
 
 The staged rollout, three stages:
 
@@ -101,3 +123,4 @@ Close `path.md` with the same four honesty caption lines from step 2, verbatim.
 - No aggregate or cross-lane trust number. Per-lane posture only.
 - The ledger path is always outside the repo. If the adopter proposes a path inside a repo tree, refuse and explain in one line.
 - Weights are declared policy, edit-me, not a prediction. The trust numbers rendered here are placeholder-policy numbers and say so.
+- The matrix carries no aggregate: its summary line is cell counts, never averaged trust. Do not add a readiness score.

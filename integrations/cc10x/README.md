@@ -190,6 +190,29 @@ node cli.ts status --ledger ./trust.jsonl [--actor <id>] [--task <type>]
 # I2 replay integrity: PASS — replay() == stored trust for 3/3 lanes
 ```
 
+**`matrix` — the readiness landscape.** Renders the whole ledger as one view:
+rows are `(actor, task-type)` lanes, columns are the policy's risk classes, and
+each cell answers three questions: posture (the pure `gate()`, verbatim), the
+single binding constraint, and the cheapest move under the declared policy.
+Emits `recede-readiness/1` JSON (`--out`) and disposable markdown (stdout by
+default, `--md-out` to a file). `--map` embeds a `recede-scout` evidence map as
+a repo-level block only: map entries carry no lane key, so they are never
+joined per lane.
+
+```bash
+node cli.ts matrix --ledger ./trust.jsonl --out readiness.json
+node cli.ts matrix --ledger ./trust.jsonl --map evidence-map.json --md-out readiness.md
+```
+
+Two rules bind the output. No aggregate: the summary is six integer counts,
+never an averaged score; readiness is per lane or it is fiction. Fail-closed:
+if any lane's stored trust does not equal `replay()` over its warrants (I2),
+the command exits 1, names the lane on stderr, and writes nothing (no `--out`,
+no `--md-out`, no stdout markdown). A landscape rendered over corrupted
+evidence would launder the corruption. Every move string cites the policy
+id, version, and digest, and states the no-decay assumption: declared-policy
+arithmetic, not a prediction.
+
 The ledger path is always yours to supply — the CLI never assumes or writes any
 other location. Treat the ledger as private evidence; don't commit it.
 

@@ -17,6 +17,8 @@ One authenticated `gh` CLI session (or a read-only `GITHUB_TOKEN` it can use). N
 
 Minute 10 to 13 is the point. The backfill replays your last 90 days of merges into per-`(actor, task_type)` trust lanes: non-zero sample counts, reverts already sealed `REVERTED`, a gate posture per risk class, and an `I2 replay integrity: PASS` self-check. Trust computed from history you already have, replay-verified, not a promise about day 90.
 
+The landscape lands in one table: `recede-cc10x matrix` renders every lane against every risk class, each cell the gate posture today, each checkpoint cell footnoted with what holds it and the cheapest move that flips it. The moves are arithmetic on your declared policy, never predictions. The summary is cell counts, never an averaged score. `readiness.json` (schema `recede-readiness/1`) is the durable artifact; the markdown table is a disposable render of it.
+
 ## What the numbers are and are not
 
 - Backfilled rows are reconstructed, unsealed, from API state as of backfill. Hash-chain integrity starts at the first forward-sealed warrant. The skills render these captions verbatim; that is deliberate.
