@@ -1,0 +1,855 @@
+{
+  "schemaVersion": "recede-readiness/1",
+  "generator": "recede-cc10x@0.1.0",
+  "generatedAt": "2026-07-14T11:36:16.972Z",
+  "policy": {
+    "id": "recede.cc10x.coding",
+    "version": "0.1.0",
+    "digest": "sha256:0bedc791e879edab7300d6c34823bf84f78287195deb70b15c7c09ecf1646daa"
+  },
+  "risk_classes": [
+    "read.only",
+    "reversible.low",
+    "financial.reversible",
+    "irreversible.critical"
+  ],
+  "lanes": [
+    {
+      "actor": "fable-5@claude-code",
+      "task_type": "canon.intake",
+      "tier": "T0",
+      "score": 0.2256,
+      "confidence": 0.2604,
+      "sample_count": 2,
+      "updated": "2026-07-02T18:25:08.659Z",
+      "i2": "PASS",
+      "outcomes": {
+        "SUCCESS": 2
+      },
+      "reconstructed": false,
+      "ground_truth_sources": {
+        "cc10x-phases": 2
+      },
+      "evidence": {
+        "classes": {},
+        "tiers": {},
+        "undescribed_checks": 2
+      },
+      "cells": [
+        {
+          "risk": "read.only",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.226 below the 0.35 floor for T1; I5 sample cap: 1 more samples needed (n=2 of 3 for T1)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 2,
+            "per_cycle_confidence": 1,
+            "evidence_alternative": null,
+            "detail": "2 clean cycles at per-cycle confidence 1.000 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "reversible.low",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.226 below the 0.55 floor for T2; I5 sample cap: 8 more samples needed (n=2 of 10 for T2)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 8,
+            "per_cycle_confidence": 1,
+            "evidence_alternative": null,
+            "detail": "8 clean cycles at per-cycle confidence 1.000 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "financial.reversible",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.226 below the 0.75 floor for T3; I5 sample cap: 23 more samples needed (n=2 of 25 for T3)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 23,
+            "per_cycle_confidence": 1,
+            "evidence_alternative": null,
+            "detail": "23 clean cycles at per-cycle confidence 1.000 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "irreversible.critical",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": true,
+          "binding": {
+            "kind": "never_recede_floor",
+            "detail": "never_recede: 'irreversible.critical' retains a checkpoint at every tier (I3)"
+          },
+          "move": {
+            "kind": "none_floor",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — floor by design (I3)"
+          }
+        }
+      ]
+    },
+    {
+      "actor": "fable-5@claude-code",
+      "task_type": "code.feature",
+      "tier": "T1",
+      "score": 0.5814716078272961,
+      "confidence": 0.6420384389689564,
+      "sample_count": 7,
+      "updated": "2026-07-12T13:20:22.405Z",
+      "i2": "PASS",
+      "outcomes": {
+        "SUCCESS": 7
+      },
+      "reconstructed": false,
+      "ground_truth_sources": {
+        "cc10x-phases": 7
+      },
+      "evidence": {
+        "classes": {},
+        "tiers": {},
+        "undescribed_checks": 28
+      },
+      "cells": [
+        {
+          "risk": "read.only",
+          "posture": "autonomous",
+          "altitude": null,
+          "never_recede": false,
+          "binding": {
+            "kind": "earned",
+            "detail": "tier T1 is autonomous for risk 'read.only'"
+          },
+          "move": {
+            "kind": "none_earned",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — tier T1 ≥ T1 sustains autonomy for 'read.only' under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879)"
+          }
+        },
+        {
+          "risk": "reversible.low",
+          "posture": "checkpoint",
+          "altitude": "brief",
+          "never_recede": false,
+          "binding": {
+            "kind": "sample_cap",
+            "detail": "I5 sample cap: 3 more samples needed (n=7 of 10 for T2)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 3,
+            "per_cycle_confidence": 0.975,
+            "evidence_alternative": null,
+            "detail": "3 clean cycles at per-cycle confidence 0.975 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "financial.reversible",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.581 below the 0.75 floor for T3; I5 sample cap: 18 more samples needed (n=7 of 25 for T3)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 18,
+            "per_cycle_confidence": 0.975,
+            "evidence_alternative": null,
+            "detail": "18 clean cycles at per-cycle confidence 0.975 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "irreversible.critical",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": true,
+          "binding": {
+            "kind": "never_recede_floor",
+            "detail": "never_recede: 'irreversible.critical' retains a checkpoint at every tier (I3)"
+          },
+          "move": {
+            "kind": "none_floor",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — floor by design (I3)"
+          }
+        }
+      ]
+    },
+    {
+      "actor": "fable-5@claude-code",
+      "task_type": "code.fix",
+      "tier": "T0",
+      "score": 0.11599999999999999,
+      "confidence": 0.13533333333333336,
+      "sample_count": 1,
+      "updated": "2026-07-02T08:07:10.438Z",
+      "i2": "PASS",
+      "outcomes": {
+        "SUCCESS": 1
+      },
+      "reconstructed": false,
+      "ground_truth_sources": {
+        "cc10x-phases": 1
+      },
+      "evidence": {
+        "classes": {},
+        "tiers": {},
+        "undescribed_checks": 3
+      },
+      "cells": [
+        {
+          "risk": "read.only",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.116 below the 0.35 floor for T1; I5 sample cap: 2 more samples needed (n=1 of 3 for T1)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 3,
+            "per_cycle_confidence": 0.9666666666666667,
+            "evidence_alternative": null,
+            "detail": "3 clean cycles at per-cycle confidence 0.967 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "reversible.low",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.116 below the 0.55 floor for T2; I5 sample cap: 9 more samples needed (n=1 of 10 for T2)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 9,
+            "per_cycle_confidence": 0.9666666666666667,
+            "evidence_alternative": null,
+            "detail": "9 clean cycles at per-cycle confidence 0.967 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "financial.reversible",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.116 below the 0.75 floor for T3; I5 sample cap: 24 more samples needed (n=1 of 25 for T3)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 24,
+            "per_cycle_confidence": 0.9666666666666667,
+            "evidence_alternative": null,
+            "detail": "24 clean cycles at per-cycle confidence 0.967 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "irreversible.critical",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": true,
+          "binding": {
+            "kind": "never_recede_floor",
+            "detail": "never_recede: 'irreversible.critical' retains a checkpoint at every tier (I3)"
+          },
+          "move": {
+            "kind": "none_floor",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — floor by design (I3)"
+          }
+        }
+      ]
+    },
+    {
+      "actor": "fable-5@claude-code",
+      "task_type": "docs.write",
+      "tier": "T0",
+      "score": 0.11399999999999999,
+      "confidence": 0.133,
+      "sample_count": 1,
+      "updated": "2026-07-02T13:57:07.070Z",
+      "i2": "PASS",
+      "outcomes": {
+        "SUCCESS": 1
+      },
+      "reconstructed": false,
+      "ground_truth_sources": {
+        "cc10x-phases": 1
+      },
+      "evidence": {
+        "classes": {},
+        "tiers": {},
+        "undescribed_checks": 2
+      },
+      "cells": [
+        {
+          "risk": "read.only",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.114 below the 0.35 floor for T1; I5 sample cap: 2 more samples needed (n=1 of 3 for T1)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 3,
+            "per_cycle_confidence": 0.95,
+            "evidence_alternative": null,
+            "detail": "3 clean cycles at per-cycle confidence 0.950 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "reversible.low",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.114 below the 0.55 floor for T2; I5 sample cap: 9 more samples needed (n=1 of 10 for T2)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 9,
+            "per_cycle_confidence": 0.95,
+            "evidence_alternative": null,
+            "detail": "9 clean cycles at per-cycle confidence 0.950 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "financial.reversible",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.114 below the 0.75 floor for T3; I5 sample cap: 24 more samples needed (n=1 of 25 for T3)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 24,
+            "per_cycle_confidence": 0.95,
+            "evidence_alternative": null,
+            "detail": "24 clean cycles at per-cycle confidence 0.950 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "irreversible.critical",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": true,
+          "binding": {
+            "kind": "never_recede_floor",
+            "detail": "never_recede: 'irreversible.critical' retains a checkpoint at every tier (I3)"
+          },
+          "move": {
+            "kind": "none_floor",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — floor by design (I3)"
+          }
+        }
+      ]
+    },
+    {
+      "actor": "fable-5@claude-code",
+      "task_type": "release.publish",
+      "tier": "T2",
+      "score": 0.8437549709922789,
+      "confidence": 0.8880118450220811,
+      "sample_count": 15,
+      "updated": "2026-07-13T08:52:41.192Z",
+      "i2": "PASS",
+      "outcomes": {
+        "SUCCESS": 15
+      },
+      "reconstructed": false,
+      "ground_truth_sources": {
+        "cc10x-phases": 15
+      },
+      "evidence": {
+        "classes": {},
+        "tiers": {},
+        "undescribed_checks": 28
+      },
+      "cells": [
+        {
+          "risk": "read.only",
+          "posture": "autonomous",
+          "altitude": null,
+          "never_recede": false,
+          "binding": {
+            "kind": "earned",
+            "detail": "tier T2 is autonomous for risk 'read.only'"
+          },
+          "move": {
+            "kind": "none_earned",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — tier T2 ≥ T1 sustains autonomy for 'read.only' under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879)"
+          }
+        },
+        {
+          "risk": "reversible.low",
+          "posture": "autonomous",
+          "altitude": null,
+          "never_recede": false,
+          "binding": {
+            "kind": "earned",
+            "detail": "tier T2 is autonomous for risk 'reversible.low'"
+          },
+          "move": {
+            "kind": "none_earned",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — tier T2 ≥ T2 sustains autonomy for 'reversible.low' under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879)"
+          }
+        },
+        {
+          "risk": "financial.reversible",
+          "posture": "checkpoint",
+          "altitude": "brief",
+          "never_recede": false,
+          "binding": {
+            "kind": "sample_cap",
+            "detail": "I5 sample cap: 10 more samples needed (n=15 of 25 for T3)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 10,
+            "per_cycle_confidence": 1,
+            "evidence_alternative": null,
+            "detail": "10 clean cycles at per-cycle confidence 1.000 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "irreversible.critical",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": true,
+          "binding": {
+            "kind": "never_recede_floor",
+            "detail": "never_recede: 'irreversible.critical' retains a checkpoint at every tier (I3)"
+          },
+          "move": {
+            "kind": "none_floor",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — floor by design (I3)"
+          }
+        }
+      ]
+    },
+    {
+      "actor": "fable-5@claude-code",
+      "task_type": "research.eval",
+      "tier": "T0",
+      "score": 0.22031099999999998,
+      "confidence": 0.25436775,
+      "sample_count": 2,
+      "updated": "2026-07-07T06:56:52.132Z",
+      "i2": "PASS",
+      "outcomes": {
+        "SUCCESS": 2
+      },
+      "reconstructed": false,
+      "ground_truth_sources": {
+        "cc10x-phases": 2
+      },
+      "evidence": {
+        "classes": {},
+        "tiers": {},
+        "undescribed_checks": 8
+      },
+      "cells": [
+        {
+          "risk": "read.only",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.220 below the 0.35 floor for T1; I5 sample cap: 1 more samples needed (n=2 of 3 for T1)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 2,
+            "per_cycle_confidence": 0.975,
+            "evidence_alternative": null,
+            "detail": "2 clean cycles at per-cycle confidence 0.975 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "reversible.low",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.220 below the 0.55 floor for T2; I5 sample cap: 8 more samples needed (n=2 of 10 for T2)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 8,
+            "per_cycle_confidence": 0.975,
+            "evidence_alternative": null,
+            "detail": "8 clean cycles at per-cycle confidence 0.975 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "financial.reversible",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.220 below the 0.75 floor for T3; I5 sample cap: 23 more samples needed (n=2 of 25 for T3)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 23,
+            "per_cycle_confidence": 0.975,
+            "evidence_alternative": null,
+            "detail": "23 clean cycles at per-cycle confidence 0.975 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "irreversible.critical",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": true,
+          "binding": {
+            "kind": "never_recede_floor",
+            "detail": "never_recede: 'irreversible.critical' retains a checkpoint at every tier (I3)"
+          },
+          "move": {
+            "kind": "none_floor",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — floor by design (I3)"
+          }
+        }
+      ]
+    },
+    {
+      "actor": "opus-4.8@claude-code",
+      "task_type": "canon.intake",
+      "tier": "T0",
+      "score": 0.12,
+      "confidence": 0.14,
+      "sample_count": 1,
+      "updated": "2026-07-05T07:29:56.675Z",
+      "i2": "PASS",
+      "outcomes": {
+        "SUCCESS": 1
+      },
+      "reconstructed": false,
+      "ground_truth_sources": {
+        "cc10x-phases": 1
+      },
+      "evidence": {
+        "classes": {},
+        "tiers": {},
+        "undescribed_checks": 2
+      },
+      "cells": [
+        {
+          "risk": "read.only",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.120 below the 0.35 floor for T1; I5 sample cap: 2 more samples needed (n=1 of 3 for T1)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 3,
+            "per_cycle_confidence": 1,
+            "evidence_alternative": null,
+            "detail": "3 clean cycles at per-cycle confidence 1.000 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "reversible.low",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.120 below the 0.55 floor for T2; I5 sample cap: 9 more samples needed (n=1 of 10 for T2)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 9,
+            "per_cycle_confidence": 1,
+            "evidence_alternative": null,
+            "detail": "9 clean cycles at per-cycle confidence 1.000 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "financial.reversible",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.120 below the 0.75 floor for T3; I5 sample cap: 24 more samples needed (n=1 of 25 for T3)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 24,
+            "per_cycle_confidence": 1,
+            "evidence_alternative": null,
+            "detail": "24 clean cycles at per-cycle confidence 1.000 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "irreversible.critical",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": true,
+          "binding": {
+            "kind": "never_recede_floor",
+            "detail": "never_recede: 'irreversible.critical' retains a checkpoint at every tier (I3)"
+          },
+          "move": {
+            "kind": "none_floor",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — floor by design (I3)"
+          }
+        }
+      ]
+    },
+    {
+      "actor": "opus-4.8@claude-code",
+      "task_type": "code.feature",
+      "tier": "T1",
+      "score": 0.39208506327899995,
+      "confidence": 0.4440325477599375,
+      "sample_count": 4,
+      "updated": "2026-07-09T05:48:25.860Z",
+      "i2": "PASS",
+      "outcomes": {
+        "SUCCESS": 4
+      },
+      "reconstructed": false,
+      "ground_truth_sources": {
+        "cc10x-phases": 4
+      },
+      "evidence": {
+        "classes": {},
+        "tiers": {},
+        "undescribed_checks": 16
+      },
+      "cells": [
+        {
+          "risk": "read.only",
+          "posture": "autonomous",
+          "altitude": null,
+          "never_recede": false,
+          "binding": {
+            "kind": "earned",
+            "detail": "tier T1 is autonomous for risk 'read.only'"
+          },
+          "move": {
+            "kind": "none_earned",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — tier T1 ≥ T1 sustains autonomy for 'read.only' under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879)"
+          }
+        },
+        {
+          "risk": "reversible.low",
+          "posture": "checkpoint",
+          "altitude": "brief",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.392 below the 0.55 floor for T2; I5 sample cap: 6 more samples needed (n=4 of 10 for T2)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 6,
+            "per_cycle_confidence": 0.975,
+            "evidence_alternative": null,
+            "detail": "6 clean cycles at per-cycle confidence 0.975 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "financial.reversible",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.392 below the 0.75 floor for T3; I5 sample cap: 21 more samples needed (n=4 of 25 for T3)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 21,
+            "per_cycle_confidence": 0.975,
+            "evidence_alternative": null,
+            "detail": "21 clean cycles at per-cycle confidence 0.975 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "irreversible.critical",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": true,
+          "binding": {
+            "kind": "never_recede_floor",
+            "detail": "never_recede: 'irreversible.critical' retains a checkpoint at every tier (I3)"
+          },
+          "move": {
+            "kind": "none_floor",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — floor by design (I3)"
+          }
+        }
+      ]
+    },
+    {
+      "actor": "opus-4.8@claude-code",
+      "task_type": "release.publish",
+      "tier": "T1",
+      "score": 0.46866991104,
+      "confidence": 0.52574392528,
+      "sample_count": 5,
+      "updated": "2026-07-09T05:40:42.141Z",
+      "i2": "PASS",
+      "outcomes": {
+        "SUCCESS": 5
+      },
+      "reconstructed": false,
+      "ground_truth_sources": {
+        "cc10x-phases": 5
+      },
+      "evidence": {
+        "classes": {},
+        "tiers": {},
+        "undescribed_checks": 8
+      },
+      "cells": [
+        {
+          "risk": "read.only",
+          "posture": "autonomous",
+          "altitude": null,
+          "never_recede": false,
+          "binding": {
+            "kind": "earned",
+            "detail": "tier T1 is autonomous for risk 'read.only'"
+          },
+          "move": {
+            "kind": "none_earned",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — tier T1 ≥ T1 sustains autonomy for 'read.only' under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879)"
+          }
+        },
+        {
+          "risk": "reversible.low",
+          "posture": "checkpoint",
+          "altitude": "brief",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.469 below the 0.55 floor for T2; I5 sample cap: 5 more samples needed (n=5 of 10 for T2)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 5,
+            "per_cycle_confidence": 1,
+            "evidence_alternative": null,
+            "detail": "5 clean cycles at per-cycle confidence 1.000 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "financial.reversible",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": false,
+          "binding": {
+            "kind": "score_and_samples",
+            "detail": "score 0.469 below the 0.75 floor for T3; I5 sample cap: 20 more samples needed (n=5 of 25 for T3)"
+          },
+          "move": {
+            "kind": "clean_cycles",
+            "clean_cycles": 20,
+            "per_cycle_confidence": 1,
+            "evidence_alternative": null,
+            "detail": "20 clean cycles at per-cycle confidence 1.000 flips this cell to autonomous under declared policy recede.cc10x.coding@0.1.0 (digest sha256:0bedc791e879); assumes no idle decay"
+          }
+        },
+        {
+          "risk": "irreversible.critical",
+          "posture": "checkpoint",
+          "altitude": "full",
+          "never_recede": true,
+          "binding": {
+            "kind": "never_recede_floor",
+            "detail": "never_recede: 'irreversible.critical' retains a checkpoint at every tier (I3)"
+          },
+          "move": {
+            "kind": "none_floor",
+            "clean_cycles": null,
+            "per_cycle_confidence": null,
+            "evidence_alternative": null,
+            "detail": "none — floor by design (I3)"
+          }
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "lanes": 9,
+    "cells": 36,
+    "autonomous": 5,
+    "checkpoint_brief": 4,
+    "checkpoint_full": 18,
+    "never_recede": 9
+  },
+  "evidence_map": null
+}

@@ -4,6 +4,14 @@
 
 > Status: **v0.1 DRAFT**. The protocol is the deliverable; the reference code is proof. Breaking changes expected before 1.0. Apache-2.0 © 2026 Yuval Raz.
 
+## The landscape, live
+
+This is Recede grading its own development. Rows are `(actor, task_type)` trust lanes from the project's real ledger; columns are risk classes. Green means review has receded there. Amber cells state their distance: n clean cycles to autonomous, arithmetic under the declared policy, not a prediction. The right column never goes green at any trust tier (invariant I3).
+
+![Recede readiness matrix, rendered from the project's own ledger](assets/readiness-matrix.svg)
+
+One command produces this landscape for any ledger: `recede-cc10x matrix --ledger <path>`. It emits a frozen `recede-readiness/1` JSON (this render's snapshot: [assets/readiness-2026-07-14.json](assets/readiness-2026-07-14.json)) and a markdown view. There is no aggregate readiness score, by design; averaging lanes is how trust gets mis-attributed in the first place. The guided path from zero to this view is [`skills/recede-path`](./skills/recede-path/SKILL.md).
+
 ---
 
 ## The problem: review fatigue
@@ -86,9 +94,11 @@ Wrap the function you already have. As the ledger accrues verified, validated ch
 
 **v0.1 ships:** the normative record schemas, the trust-state model with tiers T0-T4 and invariants I1-I7, the pure `gate()` with a declarative Policy matrix, the pure `update()`/`replay()` reducers, first-class Verify/Validate checks, a reference weighting function (asymmetric, decaying, near-miss ratchet), a TypeScript reference with a Python mirror and a cross-language conformance vector, one CLI checkpoint surface, and runnable examples: [`examples/sdlc`](./examples/sdlc), [`examples/refund`](./examples/refund), [`examples/agentic-checkout`](./examples/agentic-checkout). Integrations: [`INTEGRATIONS.md`](./INTEGRATIONS.md) (CC10X, OKF export, OpenWiki trust-calibrated wikis).
 
-**Roadmap, not built:** predictive trust calibration. The [pre-registered test](#the-pre-registered-test) showed the current math does not beat trivial baselines at predicting reverts on two repositories; better predictors are a research thread that adoption data would feed. No history-scan or recorder tooling ships today.
+**The 0.2 evidence layer ships:** pooled evidence weighting with typed, provenance-graded `evidence_refs` (the v0.2 weighting profile), a read-only repo scanner that discovers the checks you already run ([`skills/recede-scan`](./skills/recede-scan/SKILL.md)), history backfill that reconstructs lanes from your merge history with reverts folded in, a recorder-workflow emitter ([`skills/recede-wire`](./skills/recede-wire/SKILL.md)), and the [readiness matrix](#the-landscape-live). The zero-to-landscape path: [`skills/recede-path`](./skills/recede-path/SKILL.md).
 
-**Explicitly deferred:** cryptographic identity/PKI, ML scoring, distributed ledgers, a web dashboard (shipping one first would betray the anti-fatigue thesis), multi-agent delegation, framework plugins, compliance mapping. Interfaces are left where a platform would later grow.
+**Roadmap, not built:** predictive trust calibration. The [pre-registered test](#the-pre-registered-test) showed the current math does not beat trivial baselines at predicting reverts on two repositories; better predictors are a research thread that adoption data would feed. Next protocol moves: warrants emitted by the CI runner rather than the agent (the accused should not hold the pen), and external evidence receipts (the matrix above honestly reports every check as self-reported today).
+
+**Explicitly deferred:** cryptographic identity/PKI, ML scoring, distributed ledgers, a hosted dashboard product (the matrix is a static artifact you generate, with no aggregate score; a live thing to watch would betray the anti-fatigue thesis), multi-agent delegation, framework plugins, compliance mapping. Interfaces are left where a platform would later grow.
 
 ## Clean-room
 
