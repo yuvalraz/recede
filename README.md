@@ -8,7 +8,10 @@
 
 This is Recede grading its own development. Rows are `(actor, task_type)` trust lanes from the project's real ledger; columns are risk classes. Green means review has receded there. Amber cells state their distance: n clean cycles to autonomous, arithmetic under the declared policy, not a prediction. The right column never goes green at any trust tier (invariant I3).
 
-![Recede readiness matrix, rendered from the project's own ledger](assets/readiness-matrix.svg)
+<picture>
+  <source media="(max-width: 640px)" srcset="assets/readiness-matrix-mobile.svg">
+  <img src="assets/readiness-matrix.svg" alt="Recede readiness matrix, rendered from the project's own ledger">
+</picture>
 
 One command produces this landscape for any ledger: `recede-cc10x matrix --ledger <path>`. It emits a frozen `recede-readiness/1` JSON (this render's snapshot: [assets/readiness-2026-07-14.json](assets/readiness-2026-07-14.json)) and a markdown view. There is no aggregate readiness score, by design; averaging lanes is how trust gets mis-attributed in the first place. The guided path from zero to this view is [`skills/recede-path`](./skills/recede-path/SKILL.md).
 
